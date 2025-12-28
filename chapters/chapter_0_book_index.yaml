@@ -4,7 +4,7 @@ document_info:
   subtitle: "A Comprehensive Guide to Cryptographic Access Control"
   version: "1.0.0"
   author: "Raghav"
-  created: "2024-12-29"
+  created: "2025-12-29"
   status: "in_progress"
   language: "en"
   
@@ -14,8 +14,7 @@ book_metadata:
   full_title: "Hash | Sign | Encrypt | Decrypt"
   tagline: "Like chmod for cryptography"
   
-  repository: "https://github.com/yourusername/hsed"
-  documentation: "https://hsed.dev"
+  repository: "https://github.com/raghavpoonia/hsed"
   
   total_chapters: 7
   estimated_total_pages: 800
