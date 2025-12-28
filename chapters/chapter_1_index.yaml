@@ -1,0 +1,316 @@
+---
+document_info:
+  chapter: "1"
+  title: "Introduction & Fundamentals"
+  category: "foundation"
+  version: "1.0.0"
+  author: "Raghav Dinesh"
+  github: "github.com/raghavpoonia"
+  license: "MIT"
+  created: "2025-12-29"
+
+chapter_1_index:
+  
+  chapter_overview:
+    
+    purpose: |
+      Chapter 1 establishes the foundational concepts of HSED (Hash|Sign|Encrypt|Decrypt), 
+      a permission model for cryptographic operations inspired by Unix file permissions.
+      
+      This chapter answers three critical questions:
+      1. **Why do we need this?** - The problem with existing KMS/HSM IAM models
+      2. **What is HSED?** - The four permission bits and how they combine
+      3. **How do I use it?** - Standard roles and basic application patterns
+      
+      By the end of this chapter, you'll understand the HSED model well enough to:
+      - Explain it to colleagues using the chmod analogy
+      - Identify appropriate roles for common scenarios (CI/CD, secrets, audit)
+      - Recognize over-permissive policies in existing systems
+      - Apply basic HSED principles to your architecture
+      
+      This chapter is deliberately practical. Every concept is illustrated with real 
+      examples from production systems. Theory serves practice, not the other way around.
+    
+    structure: |
+      The chapter progresses from problem to solution:
+      
+      - **Sections 1-2**: Establish the problem (why existing IAM is inadequate) and 
+        introduce the chmod analogy
+      - **Sections 3-5**: Define the HSED model (permission bits, octal notation, roles)
+      - **Sections 6-8**: Explain enforcement, composition, and security principles
+      - **Sections 9-10**: Apply HSED to real scenarios and common mistakes
+      
+      Each section is self-contained with overview, examples, and takeaways. You can 
+      read sequentially or jump to specific topics.
+    
+    estimated_total_sections: 10
+    estimated_total_pages: 60
+    estimated_reading_time: "3-4 hours"
+  
+  # ==========================================================================
+  # Section Breakdown
+  # ==========================================================================
+  
+  sections:
+    
+    # ------------------------------------------------------------------------
+    section_01:
+      number: "01"
+      title: "The Problem: Cryptographic IAM is Broken"
+      filename: "section_1_01_the_problem.yaml"
+      estimated_pages: 6
+      
+      topics_covered:
+        - "Why KMS/HSM IAM is complex and error-prone"
+        - "Real-world examples of over-permissive policies"
+        - "The chmod analogy: why file permissions work"
+        - "What we can learn from 50 years of Unix"
+        - "Requirements for a crypto permission model"
+      
+      key_deliverables:
+        - "Understand the gap between file permissions and crypto permissions"
+        - "Recognize over-permissive policies in your systems"
+        - "Articulate why existing IAM models are inadequate"
+        - "Identify characteristics of a good permission model"
+    
+    # ------------------------------------------------------------------------
+    section_02:
+      number: "02"
+      title: "The chmod Analogy: From rwx to HSED"
+      filename: "section_1_02_chmod_analogy.yaml"
+      estimated_pages: 6
+      
+      topics_covered:
+        - "Unix file permissions: rwx (read, write, execute)"
+        - "Octal notation: 755, 644, 700"
+        - "Why chmod succeeded: simplicity + composability"
+        - "Mapping file operations to crypto operations"
+        - "From chmod 755 to hsed 12"
+      
+      key_deliverables:
+        - "Deep understanding of chmod and why it works"
+        - "Mental model for translating chmod to HSED"
+        - "Ability to explain HSED using chmod analogy"
+        - "Foundation for understanding octal notation"
+    
+    # ------------------------------------------------------------------------
+    section_03:
+      number: "03"
+      title: "The Four Permission Bits: H, S, E, D"
+      filename: "section_1_03_permission_bits.yaml"
+      estimated_pages: 7
+      
+      topics_covered:
+        - "Hash (H=8): Verify without authority"
+        - "Sign (S=4): Attestation and non-repudiation"
+        - "Encrypt (E=2): Confidentiality and sealing"
+        - "Decrypt (D=1): Access and unsealing"
+        - "Why these four operations are fundamental"
+        - "Security implications of each permission"
+      
+      key_deliverables:
+        - "Understand each permission bit's cryptographic meaning"
+        - "Identify security implications of granting each permission"
+        - "Recognize which operations require which permissions"
+        - "Explain why D (decrypt) is most sensitive"
+    
+    # ------------------------------------------------------------------------
+    section_04:
+      number: "04"
+      title: "Octal Notation and Permission Composition"
+      filename: "section_1_04_octal_notation.yaml"
+      estimated_pages: 6
+      
+      topics_covered:
+        - "Binary to octal conversion (0000 → 0, 1111 → 15)"
+        - "Permission bit masking (H+S = 12)"
+        - "Complete permission matrix (0-15)"
+        - "Common combinations and their meanings"
+        - "Uncommon combinations to avoid"
+      
+      key_deliverables:
+        - "Convert between binary, octal, and permission names"
+        - "Compute permission values mentally (H+S = 8+4 = 12)"
+        - "Identify valid vs problematic permission combinations"
+        - "Use octal notation fluently (hsed 12, hsed 3, hsed 9)"
+    
+    # ------------------------------------------------------------------------
+    section_05:
+      number: "05"
+      title: "Standard Roles: The HSED Role Catalog"
+      filename: "section_1_05_standard_roles.yaml"
+      estimated_pages: 7
+      
+      topics_covered:
+        - "hsed:root (15) - Full authority"
+        - "hsed:signer (12) - CI/CD, code signing"
+        - "hsed:vault (3) - Secrets management"
+        - "hsed:audit (9) - Compliance, forensics"
+        - "hsed:admin (14) - Key management"
+        - "hsed:encryptor (10) - DMZ, ingress"
+        - "hsed:verifier (8) - Signature verification"
+        - "Role selection guidelines"
+      
+      key_deliverables:
+        - "Memorize the seven standard roles"
+        - "Understand use cases for each role"
+        - "Select appropriate roles for common scenarios"
+        - "Recognize when custom roles are needed"
+    
+    # ------------------------------------------------------------------------
+    section_06:
+      number: "06"
+      title: "Permission Enforcement Principles"
+      filename: "section_1_06_enforcement.yaml"
+      estimated_pages: 6
+      
+      topics_covered:
+        - "Runtime enforcement: checking permissions before operations"
+        - "Policy validation: preventing deployment of bad policies"
+        - "Audit logging: recording all crypto operations"
+        - "Fail-closed vs fail-open"
+        - "Enforcement points: where to check permissions"
+      
+      key_deliverables:
+        - "Understand where and when to enforce permissions"
+        - "Design audit logs for HSED operations"
+        - "Implement fail-closed enforcement"
+        - "Validate policies before deployment"
+    
+    # ------------------------------------------------------------------------
+    section_07:
+      number: "07"
+      title: "Least Privilege and Separation of Duties"
+      filename: "section_1_07_security_principles.yaml"
+      estimated_pages: 6
+      
+      topics_covered:
+        - "Least privilege: grant minimum necessary permissions"
+        - "Separation of duties: no single role can complete critical ops"
+        - "Defense in depth with HSED"
+        - "Trust boundaries and permission transitions"
+        - "Privilege escalation prevention"
+      
+      key_deliverables:
+        - "Apply least privilege to crypto operations"
+        - "Design multi-party authorization with HSED"
+        - "Identify trust boundaries in your architecture"
+        - "Prevent privilege escalation attacks"
+    
+    # ------------------------------------------------------------------------
+    section_08:
+      number: "08"
+      title: "Role Hierarchies and Permission Inheritance"
+      filename: "section_1_08_role_hierarchies.yaml"
+      estimated_pages: 5
+      
+      topics_covered:
+        - "Building role hierarchies (junior → senior)"
+        - "Permission inheritance patterns"
+        - "When to use inheritance vs composition"
+        - "Avoiding permission creep in hierarchies"
+        - "Flat vs hierarchical role models"
+      
+      key_deliverables:
+        - "Design role hierarchies for your organization"
+        - "Understand when inheritance helps vs hurts"
+        - "Avoid common hierarchy anti-patterns"
+        - "Balance simplicity with organizational needs"
+    
+    # ------------------------------------------------------------------------
+    section_09:
+      number: "09"
+      title: "Applying HSED: First Real-World Scenarios"
+      filename: "section_1_09_first_scenarios.yaml"
+      estimated_pages: 6
+      
+      topics_covered:
+        - "Scenario 1: CI/CD pipeline (signer role)"
+        - "Scenario 2: Secrets manager (vault role)"
+        - "Scenario 3: Audit system (audit role)"
+        - "Scenario 4: Multi-tier web app"
+        - "Step-by-step role selection process"
+      
+      key_deliverables:
+        - "Apply HSED to your CI/CD pipeline"
+        - "Design HSED-based secrets management"
+        - "Implement audit-friendly crypto access"
+        - "Map HSED to multi-tier architectures"
+    
+    # ------------------------------------------------------------------------
+    section_10:
+      number: "10"
+      title: "Common Mistakes and Anti-Patterns"
+      filename: "section_1_10_mistakes.yaml"
+      estimated_pages: 5
+      
+      topics_covered:
+        - "Anti-pattern 1: Granting hsed:root everywhere"
+        - "Anti-pattern 2: Combining incompatible permissions"
+        - "Anti-pattern 3: Forgetting audit requirements"
+        - "Anti-pattern 4: Permission sprawl"
+        - "Anti-pattern 5: Copy-paste from Stack Overflow"
+        - "How to recognize and fix each mistake"
+      
+      key_deliverables:
+        - "Recognize common HSED anti-patterns"
+        - "Audit existing policies for mistakes"
+        - "Refactor over-permissive policies"
+        - "Avoid permission sprawl as system grows"
+  
+  # ==========================================================================
+  # Chapter Dependencies and Reading Order
+  # ==========================================================================
+  
+  reading_guidance:
+    
+    sequential_readers:
+      - "Start with Section 01 and read in order"
+      - "Each section builds on concepts from previous sections"
+      - "Don't skip Section 02 (chmod analogy) - it's crucial for intuition"
+      - "Sections 09-10 require understanding of Sections 03-05"
+    
+    selective_readers:
+      - "Already know why crypto IAM is bad? → Skip Section 01, start at 02"
+      - "Already understand chmod? → Skim Section 02, focus on 03-05"
+      - "Need quick role selection? → Jump to Section 05"
+      - "Want to apply immediately? → Read 05, then 09"
+      - "Fixing existing policies? → Read 05, then 10"
+    
+    prerequisites:
+      - "Basic understanding of cryptographic operations (hashing, signing, encryption)"
+      - "Familiarity with IAM concepts (roles, policies, permissions)"
+      - "Some experience with Unix/Linux (helpful but not required)"
+      - "No programming experience needed for this chapter"
+  
+  # ==========================================================================
+  # Expected Outcomes
+  # ==========================================================================
+  
+  after_completing_chapter:
+    
+    knowledge:
+      - "Complete understanding of the HSED permission model"
+      - "Mental model mapping chmod to crypto operations"
+      - "All seven standard roles memorized with use cases"
+      - "Security principles (least privilege, separation of duties)"
+    
+    skills:
+      - "Explain HSED to colleagues using chmod analogy"
+      - "Select appropriate HSED roles for common scenarios"
+      - "Recognize over-permissive policies in existing systems"
+      - "Apply least privilege to cryptographic access control"
+    
+    deliverables:
+      - "Clear understanding of HSED applicable to your systems"
+      - "Ability to audit current KMS/HSM policies"
+      - "Foundation for implementing HSED in Chapter 3"
+      - "Vocabulary to discuss crypto IAM with team"
+    
+    confidence_level:
+      - "Can explain HSED to non-technical stakeholders"
+      - "Can identify correct role for 80% of common scenarios"
+      - "Ready to design HSED-based architectures"
+      - "Prepared for deeper technical implementation in later chapters"
+
+---
