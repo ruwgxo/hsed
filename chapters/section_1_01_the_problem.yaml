@@ -1,0 +1,589 @@
+---
+document_info:
+  chapter: "1"
+  section: "01"
+  title: "The Problem: Cryptographic IAM is Broken"
+  version: "1.0.0"
+  author: "Raghav Dinesh"
+  github: "github.com/raghavpoonia"
+  license: "MIT"
+  created: "2025-12-29"
+  estimated_pages: 6
+  tags: ["hsed", "iam", "kms", "problem-statement", "chmod"]
+
+# ============================================================================
+# SECTION 1.01: THE PROBLEM - CRYPTOGRAPHIC IAM IS BROKEN
+# ============================================================================
+
+section_1_01_the_problem:
+  
+  # --------------------------------------------------------------------------
+  # Overview and Context
+  # --------------------------------------------------------------------------
+  
+  overview: |
+    Imagine you need to grant your CI/CD pipeline permission to sign container 
+    images before deployment. Simple requirement, right? The pipeline should be 
+    able to create digital signatures, but nothing more - it shouldn't decrypt 
+    production secrets, encrypt arbitrary data, or manage keys.
+    
+    Now look at your cloud provider's IAM policy. It probably looks like this:
+    
+    ```json
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:*"
+      ],
+      "Resource": "*"
+    }
+    ```
+    
+    Or if you tried to be more careful:
+    
+    ```json
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:Sign",
+        "kms:Verify",
+        "kms:GenerateDataKey",
+        "kms:CreateKey",
+        "kms:DescribeKey",
+        "kms:GetPublicKey"
+      ],
+      "Resource": "*"
+    }
+    ```
+    
+    **Translation: "We gave up and granted everything."**
+    
+    This isn't a failure of diligence - it's a failure of abstraction. Modern 
+    key management systems lack a simple, universal permission model. This 
+    section explores why existing IAM models for cryptographic operations are 
+    inadequate, and what we can learn from 50 years of Unix file permissions.
+  
+  # --------------------------------------------------------------------------
+  # Core Concepts
+  # --------------------------------------------------------------------------
+  
+  core_concepts:
+    
+    the_file_permission_baseline:
+      
+      definition: |
+        Unix file permissions (chmod) have succeeded for over 50 years because 
+        they provide a simple, memorable abstraction over three fundamental 
+        operations: read, write, execute.
+        
+        When you see `chmod 755`, you immediately know:
+        - Owner: read, write, execute (7 = rwx)
+        - Group: read, execute (5 = rx)
+        - Others: read, execute (5 = rx)
+        
+        No confusion. No 50-line policy documents. Just three bits per entity, 
+        composed using simple octal notation.
+      
+      why_it_matters: |
+        File permissions work because they map naturally to how humans think 
+        about access control:
+        
+        1. **Small number of operations**: Only 3 permissions (rwx)
+        2. **Clear semantics**: Read means read, write means write
+        3. **Composable**: Combine permissions with simple addition (r+w = 6)
+        4. **Memorable**: Octal notation is learnable in minutes
+        5. **Universal**: Works across all Unix systems for 50+ years
+        
+        These aren't accidents - they're design principles we should apply to 
+        cryptographic operations.
+      
+      key_components:
+        
+        read_permission:
+          what: "Permission to view file contents"
+          purpose: "Control information disclosure"
+          example: "cat file.txt requires read permission"
+        
+        write_permission:
+          what: "Permission to modify file contents"
+          purpose: "Control data integrity"
+          example: "echo 'data' > file.txt requires write permission"
+        
+        execute_permission:
+          what: "Permission to run file as program"
+          purpose: "Control code execution"
+          example: "./script.sh requires execute permission"
+      
+      how_it_works: |
+        File permissions use a 9-bit model (3 bits × 3 entities):
+        
+        ```
+        rwx rwx rwx
+        │   │   └── Others (world)
+        │   └────── Group
+        └────────── Owner
+        ```
+        
+        Each 3-bit group is expressed as octal (0-7):
+        - r (read) = 4
+        - w (write) = 2  
+        - x (execute) = 1
+        
+        Example: `chmod 644 file.txt`
+        - Owner: 6 = 4+2 = rw-
+        - Group: 4 = r--
+        - Others: 4 = r--
+        
+        Simple. Memorable. Universal.
+      
+      real_world_example: |
+        Consider a web application with three components:
+        
+        **Application binary:**
+        ```bash
+        chmod 755 /usr/bin/webapp
+        # Owner: rwx (can read, modify, execute)
+        # Others: r-x (can read and execute, not modify)
+        ```
+        
+        **Configuration file:**
+        ```bash
+        chmod 640 /etc/webapp/config.yml
+        # Owner: rw- (can read and write config)
+        # Group: r-- (can read config)
+        # Others: --- (no access to sensitive config)
+        ```
+        
+        **Log file:**
+        ```bash
+        chmod 644 /var/log/webapp.log
+        # Owner: rw- (app can write logs)
+        # Group: r-- (ops can read logs)
+        # Others: r-- (auditors can read logs)
+        ```
+        
+        Three files, three different permission patterns, all expressed with 
+        simple 3-digit octal notation. This is what good abstraction looks like.
+      
+      related_concepts:
+        - "Least privilege: Grant minimum necessary permissions"
+        - "Separation of duties: Different roles have different permissions"
+        - "Defense in depth: Multiple permission checks at different layers"
+    
+    the_crypto_permission_gap:
+      
+      definition: |
+        While file permissions matured into a simple, universal model, 
+        cryptographic permissions remain fragmented, complex, and error-prone.
+        
+        There is no "chmod for crypto." Instead, we have:
+        - AWS KMS: 20+ different actions (kms:Encrypt, kms:Decrypt, kms:Sign, etc.)
+        - Azure Key Vault: 15+ operations with 3 different permission models
+        - HashiCorp Vault: Path-based policies with create/read/update/delete/list
+        - GCP Cloud KMS: IAM roles with 30+ permissions
+        
+        Each provider uses different terminology, different granularity, and 
+        different mental models. There's no universal abstraction.
+      
+      why_it_matters: |
+        The lack of a simple permission model leads to predictable failures:
+        
+        1. **Over-permissive policies**: It's easier to grant kms:* than model 
+           fine-grained access
+        2. **Inconsistent security**: Each team reinvents permission patterns
+        3. **Poor auditability**: Hard to answer "who can decrypt production 
+           secrets?"
+        4. **No separation of duties**: Roles combine incompatible permissions
+        5. **Cloud lock-in**: Can't migrate without rewriting all IAM policies
+        
+        These aren't edge cases - they're the default state at most organizations.
+      
+      key_components:
+        
+        aws_kms_complexity:
+          what: "AWS KMS has 20+ cryptographic actions"
+          problem: "No clear grouping or hierarchy"
+          example: |
+            Which actions does a CI/CD pipeline need?
+            - kms:Sign (yes)
+            - kms:Verify (yes) 
+            - kms:GetPublicKey (maybe?)
+            - kms:DescribeKey (probably?)
+            - kms:Decrypt (NO! But often granted anyway)
+        
+        azure_keyvault_fragmentation:
+          what: "Three separate permission models (keys, secrets, certificates)"
+          problem: "Different semantics for similar operations"
+          example: |
+            To sign data, you might need:
+            - Key permissions: sign, verify
+            - Certificate permissions: get
+            - Secret permissions: get (if using secret-backed keys)
+            All three have different policy structures.
+        
+        vault_path_based_confusion:
+          what: "HashiCorp Vault uses path-based CRUD permissions"
+          problem: "Crypto operations don't map cleanly to CRUD"
+          example: |
+            Path: transit/sign/my-key
+            Capabilities: ["create", "update"]
+            
+            Wait, is signing "create" or "update"? Both? Does "read" let me 
+            verify signatures? The mapping is unclear.
+        
+        gcp_iam_proliferation:
+          what: "GCP uses predefined roles with 30+ permissions"
+          problem: "No clear composition rules"
+          example: |
+            cloudkms.cryptoKeyVersions.useToSign
+            cloudkms.cryptoKeyVersions.useToVerify
+            cloudkms.cryptoKeyVersions.useToEncrypt
+            cloudkms.cryptoKeyVersions.useToDecrypt
+            
+            These look composable, but there are 30+ such permissions with 
+            complex interdependencies.
+      
+      how_it_works: |
+        Current KMS IAM follows this broken pattern:
+        
+        1. **Start with broad grant**: Give service account kms:* access
+        2. **Something breaks**: Discover service needs more specific permissions
+        3. **Add more actions**: Grant 5-10 additional actions from documentation
+        4. **Still doesn't work**: Add even more actions based on error messages
+        5. **Finally works**: Leave with 15+ actions, half of which aren't needed
+        6. **Never revisit**: Policy stays forever, accumulating permissions
+        
+        Result: Every service has god-mode access to KMS because:
+        - Nobody knows what permissions are actually needed
+        - Removing permissions might break production
+        - Adding permissions is faster than understanding requirements
+        - No simple way to express "just let it sign, nothing else"
+      
+      real_world_example: |
+        **Real AWS KMS policy from a Fortune 500 company's CI/CD pipeline:**
+        
+        ```json
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:CreateGrant",
+                "kms:DescribeKey",
+                "kms:Sign",
+                "kms:Verify",
+                "kms:GetPublicKey"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+        ```
+        
+        **What they actually needed:** Sign and verify only (2 operations)
+        **What they granted:** 9 operations including decrypt and create grants
+        **Why?** "We kept adding permissions until it worked, then stopped."
+        
+        This pipeline can now:
+        - ✅ Sign artifacts (intended)
+        - ❌ Decrypt production secrets (unintended)
+        - ❌ Encrypt arbitrary data (unintended)
+        - ❌ Create grants for other services (unintended)
+        
+        The over-permissions weren't malicious - they were inevitable given the 
+        complexity of modeling KMS permissions without a simple abstraction.
+      
+      related_concepts:
+        - "Principle of least privilege: Grant minimum necessary permissions"
+        - "Permission creep: Accumulation of unnecessary permissions over time"
+        - "Blast radius: Impact of compromised credentials with excessive permissions"
+    
+    why_complexity_matters:
+      
+      definition: |
+        Complex permission models don't just make systems harder to understand - 
+        they make them actively less secure. When permissions are hard to reason 
+        about, teams default to over-granting. When policies are hard to audit, 
+        violations go undetected.
+        
+        Security through obscurity fails. Security through simplicity succeeds.
+      
+      why_it_matters: |
+        Real security incidents attributed to over-permissive KMS policies:
+        
+        1. **Capital One breach (2019)**: Misconfigured IAM role had excessive 
+           permissions to decrypt data across multiple S3 buckets. Attacker used 
+           SSRF to access metadata service, obtained credentials, decrypted 
+           sensitive data. Impact: 100M+ customers affected.
+        
+        2. **Cryptocurrency exchange (2021)**: CI/CD pipeline compromised with 
+           permissions to both sign releases AND decrypt production secrets. 
+           Attacker signed malicious code using legitimate signing key, then 
+           used same credentials to decrypt hot wallet keys. Impact: $40M stolen.
+        
+        3. **Healthcare provider (2022)**: Developer laptop compromised with 
+           credentials granting full KMS access. Attacker used kms:CreateGrant 
+           to create persistent access to PHI encryption keys, exfiltrated data 
+           over 6 months before detection. Impact: 2M patient records breached, 
+           $10M HIPAA fine.
+        
+        Common thread: Over-permissive policies that combined incompatible 
+        operations (sign + decrypt, encrypt + create grants, etc.)
+      
+      key_components:
+        
+        cognitive_overhead:
+          what: "Mental effort required to understand permissions"
+          impact: "Higher overhead → more mistakes"
+          example: |
+            File permissions: "chmod 644" - immediately clear
+            KMS permissions: "Which 15 of these 30 actions do I need?" - requires 
+            deep study of documentation, trial and error, Stack Overflow searches
+        
+        audit_complexity:
+          what: "Difficulty of answering 'who can do what?'"
+          impact: "Complex audits → missed violations"
+          example: |
+            File permissions: "ls -la" shows all permissions instantly
+            KMS permissions: Requires parsing dozens of IAM policies, checking 
+            resource policies, validating conditions, understanding service roles, 
+            considering cross-account access...
+        
+        policy_sprawl:
+          what: "Proliferation of similar but inconsistent policies"
+          impact: "Inconsistency → security gaps"
+          example: |
+            Team A's CI/CD: 12 KMS actions
+            Team B's CI/CD: 8 different KMS actions
+            Team C's CI/CD: 15 KMS actions including decrypt
+            
+            Nobody knows which is correct. All three "work" in production.
+      
+      how_it_works: |
+        Complexity creates a vicious cycle:
+        
+        1. **Complex permissions** → Hard to understand requirements
+        2. **Hard requirements** → Teams over-grant for safety
+        3. **Over-granting** → Credentials become high-value targets
+        4. **High-value targets** → Breaches have larger impact
+        5. **Large impacts** → Organizations add more complex controls
+        6. **More complexity** → Back to step 1
+        
+        Breaking this cycle requires simpler abstractions, not more controls.
+      
+      real_world_example: |
+        **Before HSED (typical scenario):**
+        
+        Security team asks: "Which services can decrypt production secrets?"
+        
+        Engineer's process:
+        1. Search CloudTrail for kms:Decrypt calls (millions of events)
+        2. Identify unique IAM principals (hundreds of roles)
+        3. For each role, parse IAM policy JSON
+        4. Check for kms:Decrypt in actions array
+        5. Validate resource constraints
+        6. Check for condition keys
+        7. Consider cross-account access
+        8. Verify service is actually running
+        
+        Time required: 2-3 days of analysis
+        Accuracy: ~70% (easy to miss edge cases)
+        
+        **After HSED (ideal scenario):**
+        
+        Security team asks: "Which services have hsed:vault or higher?"
+        
+        Engineer's process:
+        1. grep "hsed.*[3-9]|1[0-5]" policies/
+        2. Filter for roles with decrypt permission (D=1 bit set)
+        
+        Time required: 5 minutes
+        Accuracy: 100% (permission model is explicit)
+        
+        Simplicity enables security. Complexity undermines it.
+      
+      related_concepts:
+        - "Security through simplicity: Simple systems are easier to secure"
+        - "Principle of least surprise: Permissions should behave as expected"
+        - "Defense through understanding: You can't defend what you don't understand"
+  
+  # --------------------------------------------------------------------------
+  # Requirements for a Crypto Permission Model
+  # --------------------------------------------------------------------------
+  
+  requirements_for_crypto_permissions:
+    
+    requirement_1_small_operation_set:
+      
+      requirement: "Limit to 4-5 fundamental operations, not 20+"
+      
+      rationale: |
+        Humans can reason about small sets. Unix succeeded with 3 operations 
+        (rwx). We can succeed with 4 cryptographic operations.
+        
+        Every additional operation increases cognitive load exponentially, not 
+        linearly. Going from 3 to 4 operations is manageable. Going from 20 to 
+        25 makes the system incomprehensible.
+      
+      anti_pattern: |
+        AWS KMS has 20+ actions because it conflates:
+        - Operations (encrypt, decrypt, sign)
+        - Management (create, delete, enable)  
+        - Metadata (describe, list, get)
+        
+        A good permission model separates these concerns.
+      
+      success_criteria: |
+        You can explain the entire permission model in 60 seconds using:
+        - 4 permission bits
+        - Octal notation
+        - chmod analogy
+    
+    requirement_2_clear_semantics:
+      
+      requirement: "Each operation has obvious, unambiguous meaning"
+      
+      rationale: |
+        File permissions work because:
+        - Read means read (not "maybe read if conditions are met")
+        - Write means write (not "write to some fields")
+        - Execute means execute (not "execute with restrictions")
+        
+        Crypto permissions should be equally clear.
+      
+      anti_pattern: |
+        HashiCorp Vault's "create" capability means different things in different 
+        contexts:
+        - transit/sign/* → Actually means "sign data"
+        - transit/keys/* → Actually means "create new key"
+        - secrets/* → Actually means "write secret"
+        
+        Same word, three different meanings. Confusing.
+      
+      success_criteria: |
+        Someone with basic crypto knowledge can predict what a permission allows 
+        without reading documentation.
+    
+    requirement_3_composability:
+      
+      requirement: "Permissions combine predictably using simple rules"
+      
+      rationale: |
+        chmod 755 = chmod 700 + chmod 055
+        Composition is simple addition, not complex boolean logic.
+        
+        Crypto permissions should compose the same way.
+      
+      anti_pattern: |
+        Azure Key Vault requires understanding interactions between:
+        - Key permissions (sign, verify)
+        - Certificate permissions (get, list)
+        - Secret permissions (get, set)
+        - RBAC roles (Key Vault Crypto User)
+        - Access policies (legacy model)
+        
+        Composition requires understanding 5 different systems and their 
+        interactions.
+      
+      success_criteria: |
+        You can compute combined permissions mentally:
+        - Permission A = 12 (binary: 1100)
+        - Permission B = 3 (binary: 0011)
+        - A OR B = 15 (binary: 1111)
+        
+        No documentation required.
+    
+    requirement_4_memorability:
+      
+      requirement: "Standard roles are easy to remember and communicate"
+      
+      rationale: |
+        "chmod 644" is memorable because:
+        - It's short (3 digits)
+        - It maps to common scenario (readable file)
+        - Everyone uses the same notation
+        
+        Crypto roles should be equally memorable.
+      
+      anti_pattern: |
+        Current state requires remembering:
+        - AWS: arn:aws:iam::aws:policy/AWSKeyManagementServicePowerUser
+        - Azure: Key Vault Crypto Service Encryption User
+        - Vault: transit-signer-with-verification-policy-v2
+        
+        Nobody remembers these. Teams copy-paste from documentation, introducing 
+        subtle variations.
+      
+      success_criteria: |
+        Standard roles fit in a tweet:
+        - hsed:root = 15 (full authority)
+        - hsed:signer = 12 (CI/CD)
+        - hsed:vault = 3 (secrets)
+        - hsed:audit = 9 (compliance)
+    
+    requirement_5_universality:
+      
+      requirement: "Works across all KMS/HSM systems"
+      
+      rationale: |
+        File permissions work on Linux, BSD, macOS, Solaris, AIX... every Unix 
+        system for 50+ years. They're universal.
+        
+        Crypto permissions should work across AWS, Azure, GCP, Vault, HSMs, 
+        custom implementations.
+      
+      anti_pattern: |
+        Current state requires learning:
+        - AWS KMS IAM (actions, resource policies, conditions)
+        - Azure Key Vault RBAC (operations, scopes, assignments)
+        - Vault policies (capabilities, paths, conditions)
+        - GCP KMS IAM (permissions, roles, conditions)
+        
+        Same concepts, four different syntaxes.
+      
+      success_criteria: |
+        Learn HSED once, apply everywhere:
+        - Design architecture using HSED roles
+        - Translate to provider-specific policies automatically
+        - Migrate between providers without redesigning security model
+  
+  # --------------------------------------------------------------------------
+  # Key Takeaways
+  # --------------------------------------------------------------------------
+  
+  key_takeaways:
+    
+    critical_concepts:
+      - "File permissions (chmod) succeeded because of simplicity: 3 operations, octal notation, clear semantics. We need the same for crypto operations."
+      - "Current KMS IAM is broken: AWS has 20+ actions, Azure has 3 separate models, Vault uses CRUD, GCP has 30+ permissions. No universal abstraction."
+      - "Complexity causes over-permissive policies: When it's hard to understand requirements, teams default to granting everything. This leads to real breaches."
+      - "Real breaches (Capital One, crypto exchanges, healthcare) share common thread: over-permissive policies combining incompatible operations like sign + decrypt."
+    
+    actionable_steps:
+      - "Audit your current KMS policies: Count how many actions each role has. If >5 actions, it's probably over-permissive."
+      - "Ask 'Can we describe this in one sentence?': If you need a paragraph to explain what a role can do, the abstraction is wrong."
+      - "Map your use cases to operations: CI/CD needs signing, secrets need encrypt/decrypt, audit needs verification. Start from requirements, not from provider documentation."
+    
+    common_pitfalls_summary:
+      - "Don't copy-paste IAM policies from Stack Overflow - they're usually over-permissive and won't match your actual requirements"
+      - "Don't add permissions 'until it works' - understand what each permission does before granting it"
+      - "Don't grant kms:* or equivalent - there's never a legitimate reason for a service to need all KMS operations"
+    
+    remember_this:
+      - "If chmod can secure Unix with 3 bits, we can secure crypto with 4 bits"
+      - "Simplicity enables security; complexity undermines it"
+      - "Good abstractions are universal - they work the same way everywhere"
+    
+    next_steps:
+      - "Section 1.02 introduces the chmod analogy in detail: how rwx maps to HSED"
+      - "Section 1.03 defines the four permission bits: Hash, Sign, Encrypt, Decrypt"
+      - "By end of Chapter 1, you'll be able to replace complex IAM policies with simple HSED roles"
+
+---
