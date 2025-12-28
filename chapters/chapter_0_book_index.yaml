@@ -1,0 +1,557 @@
+---
+document_info:
+  title: "HSED: Unix Permissions for Cryptography"
+  subtitle: "A Comprehensive Guide to Cryptographic Access Control"
+  version: "1.0.0"
+  author: "Raghav"
+  created: "2024-12-29"
+  status: "in_progress"
+  language: "en"
+  
+book_metadata:
+  
+  project_name: "HSED"
+  full_title: "Hash | Sign | Encrypt | Decrypt"
+  tagline: "Like chmod for cryptography"
+  
+  repository: "https://github.com/yourusername/hsed"
+  documentation: "https://hsed.dev"
+  
+  total_chapters: 7
+  estimated_total_pages: 800
+  estimated_reading_time: "40-50 hours"
+  
+  target_audience:
+    primary:
+      - "Security engineers designing KMS/HSM access controls"
+      - "Platform engineers managing cloud cryptography services"
+      - "DevOps teams implementing CI/CD security"
+      - "Security architects building zero-trust systems"
+    
+    secondary:
+      - "Compliance officers auditing crypto access"
+      - "Security researchers studying IAM models"
+      - "Students learning applied cryptography"
+      - "CTOs evaluating security strategies"
+  
+  prerequisites:
+    required:
+      - "Basic understanding of cryptographic concepts (hashing, signing, encryption)"
+      - "Familiarity with IAM/RBAC concepts"
+      - "Command-line proficiency"
+    
+    recommended:
+      - "Experience with cloud KMS services (AWS KMS, Azure Key Vault, etc.)"
+      - "Understanding of Unix file permissions (chmod)"
+      - "Knowledge of CI/CD pipelines"
+      - "Basic Python programming"
+
+# ============================================================================
+# BOOK OVERVIEW
+# ============================================================================
+
+book_overview:
+  
+  what_this_book_covers: |
+    This book presents HSED (Hash|Sign|Encrypt|Decrypt), a permission model 
+    for cryptographic operations inspired by Unix file permissions. Just as 
+    chmod taught us rwx (read, write, execute), HSED provides a simple, 
+    memorable framework for modeling least-privilege access to key management 
+    systems (KMS) and hardware security modules (HSMs).
+    
+    The book progresses from fundamental concepts to production implementation:
+    
+    - **Fundamentals**: Understanding the HSED permission model and its Unix 
+      ancestry
+    - **Core Concepts**: Deep dive into each permission bit (H, S, E, D) and 
+      their security implications
+    - **Implementation**: Practical patterns for CI/CD, secrets management, 
+      and audit systems
+    - **Integration**: Translating HSED to AWS KMS, HashiCorp Vault, Azure 
+      Key Vault, and GCP Cloud KMS
+    - **Security**: Threat modeling, compliance mapping, and incident response
+    - **Advanced Topics**: Dynamic permissions, HSM integration, and 
+      high-availability patterns
+    - **Real-World**: Case studies from financial services, healthcare, SaaS, 
+      and government sectors
+    
+    By the end, you'll understand how to design, implement, and audit 
+    cryptographic access controls that are simultaneously secure, simple, 
+    and maintainable.
+  
+  why_this_book_exists: |
+    Modern cloud KMS services offer powerful cryptographic capabilities, but 
+    their IAM models are complex and inconsistent. Organizations struggle with:
+    
+    1. **Over-permissive policies**: It's easier to grant kms:* than model 
+       fine-grained access
+    2. **No standard abstraction**: Each cloud provider uses different 
+       terminology and models
+    3. **Poor auditability**: Hard to answer "who can decrypt production 
+       secrets?"
+    4. **Weak separation of duties**: Single roles often combine incompatible 
+       permissions
+    
+    HSED solves these problems with a simple, universal abstraction. If your 
+    team understands chmod 755, they'll understand hsed 12.
+    
+    This book doesn't just present theory - it provides production-ready 
+    implementations, policy templates, and real-world examples from systems 
+    managing millions of cryptographic operations daily.
+  
+  how_to_use_this_book: |
+    **Sequential readers** (recommended for first-time readers):
+    Start with Chapter 1 and progress through each chapter in order. Each 
+    chapter builds on concepts introduced previously.
+    
+    **Selective readers** (experienced practitioners):
+    - Need to implement HSED quickly? → Chapter 3 (Implementation Patterns)
+    - Integrating with AWS KMS? → Chapter 4, Section 1
+    - Preparing for compliance audit? → Chapter 5
+    - Debugging production issues? → Chapter 6 (Advanced Topics)
+    
+    **Reference users**:
+    Use the chapter and section indexes to find specific topics. Each section 
+    is self-contained with its own examples and takeaways.
+    
+    **Hands-on learners**:
+    Follow along with the examples/ directory in the repository. Each chapter 
+    references working code you can run locally.
+  
+  book_philosophy: |
+    This book follows three principles:
+    
+    1. **Concrete over abstract**: Real examples with actual tool names, 
+       specific numbers, and production scenarios. No "Company X" or 
+       "Tool Y" placeholders.
+    
+    2. **Honest about trade-offs**: Every design decision has costs. We 
+       discuss what doesn't work and why, including failures and lessons 
+       learned.
+    
+    3. **Immediately actionable**: Every section ends with specific actions 
+       you can take today. Theory serves practice, not the other way around.
+
+# ============================================================================
+# CHAPTER BREAKDOWN
+# ============================================================================
+
+chapters:
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 1: Introduction & Fundamentals
+  # --------------------------------------------------------------------------
+  
+  chapter_1:
+    number: 1
+    title: "Introduction & Fundamentals"
+    filename: "chapter_1_index.yaml"
+    estimated_sections: 10
+    estimated_pages: 60
+    
+    overview: |
+      Introduces the HSED permission model and establishes foundational 
+      concepts. Explores the problem space (why existing KMS IAM is 
+      inadequate), draws the chmod analogy, and defines the four permission 
+      bits. By chapter end, readers understand the HSED model and can apply 
+      it to basic scenarios.
+    
+    key_topics:
+      - "The problem: over-permissive crypto IAM"
+      - "Unix permissions as inspiration (chmod)"
+      - "The four permission bits (H, S, E, D)"
+      - "Octal notation and composition"
+      - "Standard roles (root, signer, vault, audit)"
+      - "Permission enforcement principles"
+      - "Basic threat modeling"
+    
+    target_outcomes:
+      - "Understand why a permission model for crypto operations is needed"
+      - "Explain HSED to colleagues using the chmod analogy"
+      - "Identify appropriate HSED roles for common scenarios"
+      - "Recognize over-permissive policies in existing systems"
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 2: Core Concepts
+  # --------------------------------------------------------------------------
+  
+  chapter_2:
+    number: 2
+    title: "Core Concepts"
+    filename: "chapter_2_index.yaml"
+    estimated_sections: 12
+    estimated_pages: 80
+    
+    overview: |
+      Deep dive into each permission bit - Hash, Sign, Encrypt, Decrypt. 
+      Explores their cryptographic foundations, security implications, and 
+      interaction patterns. Covers permission composition, bit masking, and 
+      the mathematics of combining permissions. Establishes security 
+      principles like least privilege and separation of duties in the 
+      context of cryptographic operations.
+    
+    key_topics:
+      - "Hash operations: verification without authority"
+      - "Sign operations: attestation and non-repudiation"
+      - "Encrypt operations: confidentiality and sealing"
+      - "Decrypt operations: access and unsealing"
+      - "Permission composition and bit masking"
+      - "Role-based access control (RBAC) for crypto"
+      - "Separation of duties enforcement"
+      - "Trust boundaries and permission transitions"
+      - "Key lifecycle and permission evolution"
+    
+    target_outcomes:
+      - "Understand cryptographic operations at a security model level"
+      - "Design role hierarchies using HSED permissions"
+      - "Identify permission combinations that violate security principles"
+      - "Model trust boundaries in distributed systems"
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 3: Implementation Patterns
+  # --------------------------------------------------------------------------
+  
+  chapter_3:
+    number: 3
+    title: "Implementation Patterns"
+    filename: "chapter_3_index.yaml"
+    estimated_sections: 15
+    estimated_pages: 100
+    
+    overview: |
+      Production-ready implementation patterns for common use cases. Each 
+      pattern includes problem context, HSED role selection, step-by-step 
+      implementation, validation procedures, and common pitfalls. Covers 
+      CI/CD security, secrets management, audit systems, and zero-trust 
+      architectures.
+    
+    key_topics:
+      - "CI/CD code signing (hsed:signer)"
+      - "Container image attestation"
+      - "Secrets management (hsed:vault)"
+      - "Audit trail design (hsed:audit)"
+      - "DMZ/boundary enforcement (hsed:dmz)"
+      - "Multi-party authorization"
+      - "Key rotation without downtime"
+      - "Emergency access (break-glass)"
+      - "Service mesh security"
+      - "Zero-trust micro-segmentation"
+    
+    target_outcomes:
+      - "Implement HSED for CI/CD pipelines"
+      - "Design secure secrets management with proper separation"
+      - "Build audit-friendly systems with HSED"
+      - "Apply HSED to zero-trust architectures"
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 4: Cloud Provider Integration
+  # --------------------------------------------------------------------------
+  
+  chapter_4:
+    number: 4
+    title: "Cloud Provider Integration"
+    filename: "chapter_4_index.yaml"
+    estimated_sections: 18
+    estimated_pages: 120
+    
+    overview: |
+      Comprehensive guide to integrating HSED with cloud KMS services. 
+      Covers policy translation, IAM mapping, and production deployment for 
+      AWS KMS, HashiCorp Vault, Azure Key Vault, and GCP Cloud KMS. Includes 
+      Terraform modules, CloudFormation templates, and policy-as-code 
+      implementations.
+    
+    key_topics:
+      - "AWS KMS: IAM policy translation"
+      - "AWS KMS: Key policy vs identity policy"
+      - "AWS KMS: CloudTrail auditing"
+      - "HashiCorp Vault: Policy mapping"
+      - "HashiCorp Vault: Transit secrets engine"
+      - "Azure Key Vault: RBAC integration"
+      - "Azure Key Vault: Managed identities"
+      - "GCP Cloud KMS: IAM conditions"
+      - "GCP Cloud KMS: Service accounts"
+      - "Multi-cloud consistency"
+      - "Policy-as-code (Terraform, Pulumi)"
+      - "Provider comparison matrix"
+    
+    target_outcomes:
+      - "Translate HSED roles to cloud provider policies"
+      - "Deploy HSED-enforced systems on AWS/Azure/GCP"
+      - "Maintain consistent permissions across clouds"
+      - "Automate policy generation with IaC tools"
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 5: Security & Compliance
+  # --------------------------------------------------------------------------
+  
+  chapter_5:
+    number: 5
+    title: "Security & Compliance"
+    filename: "chapter_5_index.yaml"
+    estimated_sections: 12
+    estimated_pages: 85
+    
+    overview: |
+      Security analysis of HSED-based systems. Covers threat modeling, 
+      attack surface analysis, compliance mapping (SOC2, ISO27001, PCI-DSS), 
+      and incident response. Includes real breach scenarios and how HSED 
+      would have prevented or limited damage.
+    
+    key_topics:
+      - "Threat modeling with HSED"
+      - "Attack surface analysis"
+      - "Privilege escalation scenarios"
+      - "Insider threat mitigation"
+      - "Key exfiltration prevention"
+      - "Compliance mapping (SOC2, ISO27001, PCI-DSS)"
+      - "Audit trail design"
+      - "Incident response procedures"
+      - "Forensic analysis with HSED"
+      - "Security testing methodologies"
+    
+    target_outcomes:
+      - "Model threats against HSED systems"
+      - "Map HSED to compliance requirements"
+      - "Design audit trails for compliance"
+      - "Respond to cryptographic incidents"
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 6: Advanced Topics
+  # --------------------------------------------------------------------------
+  
+  chapter_6:
+    number: 6
+    title: "Advanced Topics"
+    filename: "chapter_6_index.yaml"
+    estimated_sections: 10
+    estimated_pages: 75
+    
+    overview: |
+      Advanced HSED topics for complex environments. Covers dynamic 
+      permission elevation, context-aware policies, HSM integration, 
+      high-availability patterns, and performance optimization. Includes 
+      quantum-safe considerations and future-proofing strategies.
+    
+    key_topics:
+      - "Dynamic permission elevation"
+      - "Time-based access controls"
+      - "Context-aware policies"
+      - "Hardware security modules (HSMs)"
+      - "High-availability patterns"
+      - "Disaster recovery"
+      - "Performance optimization"
+      - "Quantum-safe considerations"
+      - "Federation and SSO integration"
+      - "HSED at scale (100k+ keys)"
+    
+    target_outcomes:
+      - "Implement dynamic permission systems"
+      - "Integrate HSED with HSMs"
+      - "Design HA cryptographic systems"
+      - "Optimize HSED performance at scale"
+  
+  # --------------------------------------------------------------------------
+  # CHAPTER 7: Real-World Case Studies
+  # --------------------------------------------------------------------------
+  
+  chapter_7:
+    number: 7
+    title: "Real-World Case Studies"
+    filename: "chapter_7_index.yaml"
+    estimated_sections: 10
+    estimated_pages: 80
+    
+    overview: |
+      Real-world HSED implementations across industries. Each case study 
+      includes business context, technical challenges, HSED design decisions, 
+      implementation details, and quantified outcomes. Covers financial 
+      services, healthcare, SaaS, government, and cryptocurrency sectors.
+    
+    key_topics:
+      - "Case study: Fortune 500 financial services"
+      - "Case study: Healthcare HIPAA compliance"
+      - "Case study: Multi-tenant SaaS platform"
+      - "Case study: Government agency"
+      - "Case study: Cryptocurrency exchange"
+      - "Migration strategies (legacy → HSED)"
+      - "Common implementation mistakes"
+      - "Lessons learned"
+      - "ROI and success metrics"
+    
+    target_outcomes:
+      - "Learn from production HSED implementations"
+      - "Avoid common migration pitfalls"
+      - "Quantify HSED benefits for stakeholders"
+      - "Apply patterns to your organization"
+
+# ============================================================================
+# BOOK-WIDE RESOURCES
+# ============================================================================
+
+supplementary_materials:
+  
+  code_repository:
+    url: "https://github.com/yourusername/hsed"
+    contents:
+      - "Python reference implementation"
+      - "CLI tool (hsed command)"
+      - "Cloud provider integrations"
+      - "Terraform modules"
+      - "Example policies"
+      - "Test suite"
+  
+  online_resources:
+    documentation: "https://hsed.dev"
+    api_reference: "https://hsed.dev/api"
+    community: "https://github.com/yourusername/hsed/discussions"
+    issue_tracker: "https://github.com/yourusername/hsed/issues"
+  
+  companion_materials:
+    - "Policy templates (AWS, Azure, GCP, Vault)"
+    - "Terraform modules for common patterns"
+    - "Kubernetes RBAC examples"
+    - "Compliance checklists"
+    - "Audit report templates"
+
+# ============================================================================
+# READING PATHS
+# ============================================================================
+
+reading_paths:
+  
+  beginner_path:
+    description: "New to cryptographic access control"
+    sequence:
+      - "Chapter 1: Complete (all sections)"
+      - "Chapter 2: Sections 1-6 (skip advanced topics)"
+      - "Chapter 3: Sections 1-5 (core patterns only)"
+      - "Chapter 4: Pick ONE cloud provider section"
+      - "Chapter 5: Sections 1-3 (basic security)"
+      - "Skip Chapter 6 initially"
+      - "Chapter 7: Read case study closest to your industry"
+    estimated_time: "20 hours"
+  
+  practitioner_path:
+    description: "Experienced with KMS, want to implement HSED"
+    sequence:
+      - "Chapter 1: Skim sections 1-3, read 4-8"
+      - "Chapter 2: Read all"
+      - "Chapter 3: Focus on patterns matching your use cases"
+      - "Chapter 4: Deep dive into your cloud provider(s)"
+      - "Chapter 5: Complete (especially compliance sections)"
+      - "Chapter 6: Sections relevant to your scale"
+      - "Chapter 7: All case studies"
+    estimated_time: "30 hours"
+  
+  architect_path:
+    description: "Designing enterprise-wide crypto strategy"
+    sequence:
+      - "Chapter 1: Complete"
+      - "Chapter 2: Complete"
+      - "Chapter 3: All patterns (identify gaps in current architecture)"
+      - "Chapter 4: All providers (multi-cloud strategy)"
+      - "Chapter 5: Complete (critical for compliance)"
+      - "Chapter 6: Complete (scale considerations)"
+      - "Chapter 7: All case studies (learn from others)"
+    estimated_time: "50 hours"
+  
+  auditor_path:
+    description: "Auditing or validating HSED implementations"
+    sequence:
+      - "Chapter 1: Sections 1-5 (understand the model)"
+      - "Chapter 2: Sections 1-4, 7-8 (permission semantics)"
+      - "Chapter 3: Section 4 (audit patterns)"
+      - "Chapter 4: Sections for providers in scope"
+      - "Chapter 5: Complete (this is your focus)"
+      - "Chapter 6: Skip unless system at scale"
+      - "Chapter 7: Read for context"
+    estimated_time: "25 hours"
+
+# ============================================================================
+# CONVENTIONS USED IN THIS BOOK
+# ============================================================================
+
+conventions:
+  
+  code_formatting:
+    inline_code: "`command` or `variable`"
+    code_blocks: "```language ... ```"
+    shell_commands: "$ prefix for commands"
+    command_output: "Indented without prefix"
+  
+  special_elements:
+    note: "💡 Additional information"
+    warning: "⚠️ Important caution"
+    tip: "💪 Best practice"
+    security: "🔒 Security consideration"
+    compliance: "📋 Compliance note"
+  
+  terminology:
+    hsed_notation: "hsed 12 (octal), hsed:signer (role alias)"
+    permission_bits: "H, S, E, D (uppercase)"
+    octal_values: "0-15"
+    role_names: "Lowercase with colons (hsed:signer)"
+  
+  examples:
+    real_names: "Use actual tool/company names (AWS, not 'Cloud Provider X')"
+    quantified: "Include specific numbers ($50K, 200/week, 92% reduction)"
+    complete: "Show full implementation, not just snippets"
+
+# ============================================================================
+# EXPECTED OUTCOMES
+# ============================================================================
+
+after_reading_this_book:
+  
+  knowledge:
+    - "Deep understanding of cryptographic permission models"
+    - "HSED role selection for any scenario"
+    - "Cloud provider IAM translation"
+    - "Security implications of permission combinations"
+    - "Compliance requirements for crypto access"
+  
+  skills:
+    - "Design HSED-based architectures from scratch"
+    - "Implement HSED on AWS/Azure/GCP/Vault"
+    - "Audit existing crypto IAM for over-permissions"
+    - "Respond to cryptographic security incidents"
+    - "Generate policy-as-code (Terraform, CloudFormation)"
+  
+  deliverables:
+    - "Production-ready HSED policies for your organization"
+    - "Cloud provider IAM policies (AWS, Azure, GCP)"
+    - "CI/CD pipeline security implementation"
+    - "Secrets management architecture"
+    - "Audit trail and compliance documentation"
+  
+  mindset_shifts:
+    - "Crypto permissions deserve same rigor as file permissions"
+    - "Simplicity enables security (complex policies hide vulnerabilities)"
+    - "Universal abstractions beat provider-specific solutions"
+    - "Least privilege is achievable, not aspirational"
+
+# ============================================================================
+# FEEDBACK AND CONTRIBUTION
+# ============================================================================
+
+feedback:
+  
+  bug_reports:
+    what: "Errors in code, incorrect examples, broken links"
+    where: "https://github.com/yourusername/hsed/issues"
+  
+  suggestions:
+    what: "Missing topics, unclear explanations, additional examples"
+    where: "https://github.com/yourusername/hsed/discussions"
+  
+  contributions:
+    what: "Additional case studies, new integrations, translations"
+    where: "See CONTRIBUTING.md"
+  
+  contact:
+    author: "Raghav"
+    email: "your.email@example.com"
+    linkedin: "linkedin.com/in/yourprofile"
+
+---
