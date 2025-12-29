@@ -1,0 +1,863 @@
+# section_1_03_permission_bits.yaml
+---
+document_info:
+  chapter: "1"
+  section: "03"
+  title: "The Four Permission Bits: H, S, E, D"
+  version: "1.0.0"
+  author: "Raghav Dinesh"
+  github: "github.com/raghavpoonia"
+  license: "MIT"
+  created: "2025-12-29"
+  estimated_pages: 7
+  tags: ["hsed", "permission-bits", "hash", "sign", "encrypt", "decrypt"]
+
+# ============================================================================
+# SECTION 1.03: THE FOUR PERMISSION BITS - H, S, E, D
+# ============================================================================
+
+section_1_03_permission_bits:
+  
+  # --------------------------------------------------------------------------
+  # Overview and Context
+  # --------------------------------------------------------------------------
+  
+  overview: |
+    HSED defines four fundamental cryptographic operations as permission bits:
+    
+    - **H (8)** - Hash: Compute hashes, verify signatures
+    - **S (4)** - Sign: Create signatures, attestations
+    - **E (2)** - Encrypt: Seal data, create ciphertext
+    - **D (1)** - Decrypt: Unseal data, access plaintext
+    
+    These four operations aren't arbitrary - they represent the complete space 
+    of cryptographic access control. Every KMS/HSM operation maps to one or 
+    more of these bits. Every security policy can be expressed as combinations 
+    of these four permissions.
+    
+    This section defines each bit in detail: what it allows, what it prevents, 
+    security implications, and real-world usage patterns. By the end, you'll 
+    understand why these four operations form the foundation of HSED, and how 
+    to reason about their security properties.
+  
+  # --------------------------------------------------------------------------
+  # Core Concepts
+  # --------------------------------------------------------------------------
+  
+  core_concepts:
+    
+    hash_permission_h_equals_8:
+      
+      definition: |
+        Hash (H) = 8 = Binary 1000
+        
+        The Hash permission allows cryptographic verification without authority 
+        to create or modify. It's the "read-only" permission of the crypto world.
+        
+        **Operations allowed:**
+        - Compute cryptographic hashes (SHA-256, SHA-3, BLAKE2)
+        - Verify digital signatures (check sig matches public key)
+        - Verify message authentication codes (MACs)
+        - Compute checksums and integrity checks
+        - Read public keys (for verification)
+        
+        **Operations NOT allowed:**
+        - Create signatures (requires Sign)
+        - Decrypt data (requires Decrypt)
+        - Modify any cryptographic material
+        - Generate keys
+      
+      why_it_matters: |
+        Hash permission enables trust without authority. You can verify that 
+        something is authentic without being able to forge it yourself.
+        
+        **Critical security properties:**
+        1. **Read-only verification**: Can check, can't create
+        2. **No confidentiality access**: Can't read encrypted data
+        3. **Audit-safe**: Can't modify what you're auditing
+        4. **Public operation**: Hash/verify uses public information only
+        
+        This makes Hash the safest permission to grant. Services that only need 
+        to verify signatures (like artifact validators, integrity checkers) 
+        should get Hash only, nothing more.
+      
+      key_components:
+        
+        cryptographic_hashing:
+          what: "Computing one-way hash functions"
+          algorithms: ["SHA-256", "SHA-3", "BLAKE2", "BLAKE3"]
+          use_cases:
+            - "Integrity verification"
+            - "Content addressing"
+            - "Fingerprinting artifacts"
+          example: |
+            hash = SHA256(data)
+            # One-way: Can't reverse hash to get data
+            # Deterministic: Same data always gives same hash
+            # Collision-resistant: Can't find two inputs with same hash
+        
+        signature_verification:
+          what: "Checking digital signatures against public keys"
+          algorithms: ["RSA-PSS", "ECDSA", "EdDSA", "RSASSA-PKCS1-v1_5"]
+          use_cases:
+            - "Code signing verification"
+            - "Document authenticity checks"
+            - "Certificate validation"
+          example: |
+            public_key = get_public_key(key_id)
+            is_valid = verify_signature(data, signature, public_key)
+            # Can verify signatures created by others
+            # Cannot create new signatures (no private key access)
+        
+        mac_verification:
+          what: "Verifying message authentication codes"
+          algorithms: ["HMAC-SHA256", "HMAC-SHA512", "Poly1305"]
+          use_cases:
+            - "API request validation"
+            - "Authenticated encryption verification"
+            - "Message integrity checks"
+          example: |
+            expected_mac = compute_hmac(key, data)
+            is_valid = constant_time_compare(received_mac, expected_mac)
+            # Can verify MAC matches
+            # Requires key access (but read-only operation)
+      
+      how_it_works: |
+        Hash permission operates on public information:
+        
+        **Signature verification flow:**
+        1. Receive: data + signature + key_id
+        2. Fetch public key for key_id (allowed with H)
+        3. Compute hash of data (allowed with H)
+        4. Verify signature matches hash using public key (allowed with H)
+        5. Return: signature_valid = true/false
+        
+        **What's NOT possible:**
+        - Can't access private key (read-only to public keys)
+        - Can't create signatures (no private key operations)
+        - Can't decrypt data (encryption uses different keys)
+        - Can't modify any cryptographic material
+        
+        Hash is a pure verification operation - check validity without authority 
+        to create or modify.
+      
+      real_world_example: |
+        **Artifact verification service (GitHub Actions, GitLab CI)**
+        
+        **Requirement:**
+        Verify container images are signed by trusted CI/CD before deployment.
+        
+        **HSED permission: H (8) only**
+        
+        ```python
+        # Verification service
+        def verify_artifact(image_digest, signature, key_id):
+            # All these operations require only Hash permission
+            public_key = kms.get_public_key(key_id)  # H: read public key
+            image_hash = sha256(image_digest)         # H: compute hash
+            is_valid = verify_sig(                    # H: verify signature
+                image_hash, 
+                signature, 
+                public_key
+            )
+            
+            if is_valid:
+                allow_deployment(image_digest)
+            else:
+                block_deployment(image_digest)
+                alert_security_team()
+        ```
+        
+        **Security analysis:**
+        - ✅ Can verify artifacts are signed by trusted source
+        - ✅ Cannot forge signatures (no Sign permission)
+        - ✅ Cannot decrypt production secrets (no Decrypt permission)
+        - ✅ Cannot exfiltrate data via encryption (no Encrypt permission)
+        - ✅ If compromised: Attacker can only approve/deny deployments, not 
+             forge signatures or access secrets
+        
+        **Impact of compromise:**
+        - Worst case: Attacker deploys unsigned image (detectable, alerts fired)
+        - Not possible: Forge valid signature, decrypt secrets, persist access
+        
+        Hash-only permission minimizes blast radius while enabling verification.
+      
+      related_concepts:
+        - "Public key cryptography: Verification uses public keys only"
+        - "One-way functions: Hash can't be reversed"
+        - "Read-only operations: Check without authority to create"
+    
+    sign_permission_s_equals_4:
+      
+      definition: |
+        Sign (S) = 4 = Binary 0100
+        
+        The Sign permission grants authority to create cryptographic attestations. 
+        It's the "write" permission for non-repudiation - you can prove something 
+        is authentic and was created by you.
+        
+        **Operations allowed:**
+        - Create digital signatures
+        - Sign certificates
+        - Generate attestations
+        - Create message authentication codes (MACs)
+        - Sign code/artifacts
+        
+        **Operations NOT allowed:**
+        - Decrypt data (requires Decrypt)
+        - Encrypt data (requires Encrypt)
+        - Delete or revoke signatures (separate management operation)
+      
+      why_it_matters: |
+        Sign permission grants attestation authority. With this permission, you 
+        can make cryptographic claims that others can verify. This is powerful 
+        and must be controlled carefully.
+        
+        **Critical security properties:**
+        1. **Non-repudiation**: Signatures prove who created them
+        2. **Authority delegation**: Signing a cert grants authority to others
+        3. **Trust root**: Compromised signing key breaks trust chain
+        4. **Attestation binding**: Signatures bind identity to data
+        
+        Sign permission should be granted ONLY to services that need to make 
+        cryptographic attestations: CI/CD pipelines signing releases, certificate 
+        authorities, code signing services.
+      
+      key_components:
+        
+        digital_signatures:
+          what: "Cryptographic proof of authenticity and integrity"
+          algorithms: ["RSA-PSS", "ECDSA", "EdDSA", "RSASSA-PKCS1-v1_5"]
+          use_cases:
+            - "Code signing (executables, containers)"
+            - "Document signing (PDFs, contracts)"
+            - "API request signing (AWS Signature V4)"
+          example: |
+            private_key = get_private_key(key_id)  # Requires Sign permission
+            data_hash = sha256(data)
+            signature = sign(data_hash, private_key)
+            
+            # Signature proves:
+            # 1. Data hasn't been modified (integrity)
+            # 2. Signer possessed private key (authenticity)
+            # 3. Signer can't deny signing (non-repudiation)
+        
+        certificate_signing:
+          what: "Creating X.509 certificates binding identity to public key"
+          use_cases:
+            - "TLS certificate issuance"
+            - "Code signing certificates"
+            - "Client authentication certificates"
+          example: |
+            # Certificate Authority operation
+            csr = receive_certificate_signing_request()
+            validate_identity(csr.subject)
+            
+            cert = create_certificate(
+                subject=csr.subject,
+                public_key=csr.public_key,
+                validity_period="1 year"
+            )
+            
+            ca_signature = sign(cert, ca_private_key)  # Requires Sign
+            return cert + ca_signature
+            
+            # Signature grants authority to certificate holder
+        
+        attestations:
+          what: "Cryptographic claims about system state or execution"
+          use_cases:
+            - "Build attestations (SLSA provenance)"
+            - "Deployment attestations"
+            - "Security posture attestations"
+          example: |
+            attestation = {
+                "artifact": "nginx:1.21.0@sha256:abc123...",
+                "builder": "github-actions",
+                "built_at": "2025-12-29T01:05:00Z",
+                "commit": "abc123def456",
+                "tests_passed": true
+            }
+            
+            signature = sign(json.dumps(attestation), signing_key)
+            
+            # Anyone with Hash permission can verify this attestation
+            # Only signer could create it (non-repudiation)
+      
+      how_it_works: |
+        Sign permission requires private key access:
+        
+        **Signing flow:**
+        1. Receive data to sign
+        2. Compute hash of data (technically needs H, but S implies H)
+        3. Access private key (requires Sign permission)
+        4. Perform signing operation with private key
+        5. Return signature
+        
+        **Security boundaries:**
+        - Private key never leaves KMS/HSM
+        - Each signing operation is logged
+        - Signature proves key was used
+        - Can't deny signing (non-repudiation)
+        
+        **What Sign does NOT allow:**
+        - Reading encrypted data (that's Decrypt)
+        - Writing encrypted data (that's Encrypt)
+        - Verifying others' signatures (that's Hash - though S usually includes H)
+      
+      real_world_example: |
+        **CI/CD release signing pipeline**
+        
+        **Requirement:**
+        Automatically sign container images after successful build and tests.
+        
+        **HSED permission: S+H = 12 (hsed:signer)**
+        
+        ```python
+        # Release signing service
+        def sign_release(artifact_digest, build_metadata):
+            # Validate build
+            if not all_tests_passed(build_metadata):
+                raise Exception("Cannot sign failed build")
+            
+            if not authorized_branch(build_metadata.branch):
+                raise Exception("Cannot sign from untrusted branch")
+            
+            # Create attestation
+            attestation = create_slsa_provenance(
+                artifact=artifact_digest,
+                builder=build_metadata.builder,
+                materials=build_metadata.materials,
+                timestamp=now()
+            )
+            
+            # Sign attestation (requires S permission)
+            signature = kms.sign(
+                key_id="production-signing-key",
+                message=json.dumps(attestation),
+                algorithm="ECDSA_SHA_256"
+            )
+            
+            # Store signature with artifact
+            store_signature(artifact_digest, signature, attestation)
+            
+            # Verify our own signature (requires H permission)
+            verify_signature(artifact_digest, signature)
+            
+            return signature
+        ```
+        
+        **Security analysis:**
+        - ✅ Can sign releases after validation
+        - ✅ Cannot decrypt production secrets (no D permission)
+        - ✅ Cannot encrypt arbitrary data (no E permission)
+        - ✅ Signing operations are logged and auditable
+        - ⚠️ If compromised: Attacker can sign malicious releases
+        
+        **Mitigation for compromise:**
+        - Multi-party signing (requires 2+ signatures)
+        - Signing windows (only during deployment hours)
+        - Anomaly detection (unusual signing patterns)
+        - Fast key rotation
+        
+        Sign is powerful - it grants attestation authority. Must be protected 
+        and audited carefully.
+      
+      related_concepts:
+        - "Non-repudiation: Can't deny creating signature"
+        - "Public key infrastructure (PKI): Trust chains built on signing"
+        - "Code signing: Proving software authenticity"
+    
+    encrypt_permission_e_equals_2:
+      
+      definition: |
+        Encrypt (E) = 2 = Binary 0010
+        
+        The Encrypt permission allows creating confidentiality. You can seal data 
+        so only authorized parties can read it, but you cannot unseal data 
+        encrypted by others (that requires Decrypt).
+        
+        **Operations allowed:**
+        - Encrypt plaintext to ciphertext
+        - Generate data encryption keys (DEKs)
+        - Seal secrets
+        - Create encrypted envelopes
+        - Re-encrypt data (with caveats)
+        
+        **Operations NOT allowed:**
+        - Decrypt ciphertext to plaintext (requires Decrypt)
+        - Read encrypted data (requires Decrypt)
+        - Sign data (requires Sign)
+      
+      why_it_matters: |
+        Encrypt permission enables write-only confidentiality. This is critical 
+        for:
+        
+        1. **Data ingestion**: Systems that receive sensitive data and encrypt 
+           it immediately, without needing to read it later
+        2. **One-way data flows**: DMZ systems that encrypt incoming data and 
+           forward it to internal systems
+        3. **Separation of duties**: Services that seal secrets for others to 
+           decrypt, preventing data access at ingestion point
+        
+        **Critical security properties:**
+        1. **Write-only confidentiality**: Can seal, can't unseal
+        2. **One-way operation**: Encrypt doesn't grant Decrypt
+        3. **Data exfiltration risk**: Can encrypt arbitrary data and send 
+           elsewhere (needs monitoring)
+        4. **Key wrapping**: Can wrap keys for export (security consideration)
+        
+        Encrypt-only is less common than Encrypt+Decrypt (vault role), but 
+        critically important for boundary systems.
+      
+      key_components:
+        
+        symmetric_encryption:
+          what: "Same key encrypts and decrypts"
+          algorithms: ["AES-256-GCM", "ChaCha20-Poly1305", "AES-256-CBC"]
+          use_cases:
+            - "Data at rest encryption"
+            - "Database field encryption"
+            - "File encryption"
+          example: |
+            plaintext = "sensitive data"
+            key = get_encryption_key(key_id)
+            ciphertext = aes_gcm_encrypt(plaintext, key, nonce)
+            
+            # Ciphertext can only be decrypted with same key
+            # Encrypt permission can create ciphertext
+            # Decrypt permission needed to recover plaintext
+        
+        asymmetric_encryption:
+          what: "Public key encrypts, private key decrypts"
+          algorithms: ["RSA-OAEP", "RSA-PKCS1", "ECIES"]
+          use_cases:
+            - "Key exchange"
+            - "Hybrid encryption"
+            - "Public key encryption"
+          example: |
+            public_key = get_public_key(recipient_key_id)
+            encrypted = rsa_oaep_encrypt(plaintext, public_key)
+            
+            # Anyone with public key can encrypt
+            # Only holder of private key can decrypt
+            # Encrypt permission uses public key (available to all)
+            # Decrypt permission requires private key (restricted)
+        
+        envelope_encryption:
+          what: "Encrypt data with DEK, encrypt DEK with KEK"
+          use_cases:
+            - "Large data encryption"
+            - "Cloud storage encryption (S3, GCS)"
+            - "Database encryption"
+          example: |
+            # Generate data encryption key
+            dek = generate_random_key(256)
+            
+            # Encrypt data with DEK
+            ciphertext = aes_gcm_encrypt(large_data, dek)
+            
+            # Encrypt DEK with KEK (requires Encrypt permission)
+            encrypted_dek = kms.encrypt(
+                key_id="master-key",
+                plaintext=dek
+            )
+            
+            # Store: ciphertext + encrypted_dek
+            # Decrypt later requires: Decrypt permission for KEK
+      
+      how_it_works: |
+        Encrypt permission creates ciphertext from plaintext:
+        
+        **Encryption flow:**
+        1. Receive plaintext data
+        2. Access encryption key (requires Encrypt permission)
+        3. Generate nonce/IV if needed
+        4. Perform encryption operation
+        5. Return ciphertext (+ nonce + auth tag if AEAD)
+        
+        **Asymmetry:**
+        - Encrypt uses public keys (or symmetric keys for write)
+        - Decrypt uses private keys (or same symmetric keys for read)
+        - Having Encrypt does NOT grant Decrypt
+        
+        **Security considerations:**
+        - Can encrypt any data (potential data exfiltration)
+        - Cannot read what was encrypted (without Decrypt)
+        - Can't verify encryption worked (would need Decrypt to test)
+      
+      real_world_example: |
+        **DMZ data ingestion service**
+        
+        **Requirement:**
+        Receive sensitive customer data at API boundary, encrypt immediately, 
+        forward to internal systems. Ingestion service should NOT be able to 
+        read the data it's encrypting.
+        
+        **HSED permission: H+E = 10 (hsed:dmz)**
+        
+        ```python
+        # DMZ ingestion service
+        def ingest_customer_data(request):
+            # Validate request (H permission for signature verification)
+            if not verify_api_signature(request):
+                return 403
+            
+            # Extract customer data
+            customer_pii = request.json["customer_data"]
+            
+            # Encrypt immediately (E permission)
+            encrypted_data = kms.encrypt(
+                key_id="customer-data-key",
+                plaintext=json.dumps(customer_pii)
+            )
+            
+            # Forward to internal processing queue
+            queue.send({
+                "encrypted_payload": encrypted_data,
+                "key_id": "customer-data-key",
+                "timestamp": now()
+            })
+            
+            # DMZ service can encrypt but NEVER decrypt
+            # Even if DMZ is compromised, attacker can't read past data
+            
+            return 200
+        ```
+        
+        **Security analysis:**
+        - ✅ Can encrypt incoming data
+        - ✅ Cannot decrypt encrypted data (no D permission)
+        - ✅ Cannot sign malicious data (no S permission)
+        - ✅ If compromised: Attacker can only encrypt new data, not read 
+             existing encrypted data
+        
+        **Threat mitigation:**
+        - Compromise of DMZ doesn't expose past customer data
+        - Attacker would need separate Decrypt permission (internal services)
+        - Separation of duties: Ingress encrypts, internal services decrypt
+        
+        Encrypt-only creates one-way data flow security boundary.
+      
+      related_concepts:
+        - "Envelope encryption: DEK for data, KEK for DEK"
+        - "Data at rest encryption: Protecting stored data"
+        - "One-way data flows: Encrypt at boundary, decrypt internally"
+    
+    decrypt_permission_d_equals_1:
+      
+      definition: |
+        Decrypt (D) = 1 = Binary 0001
+        
+        The Decrypt permission grants access to confidential data. It's the most 
+        sensitive permission because it allows reading encrypted secrets, customer 
+        data, credentials, and any other confidential information.
+        
+        **Operations allowed:**
+        - Decrypt ciphertext to plaintext
+        - Unwrap encrypted data encryption keys
+        - Access sealed secrets
+        - Read encrypted data
+        - Recover plaintext from encrypted envelopes
+        
+        **Operations NOT allowed:**
+        - Encrypt data (requires Encrypt)
+        - Sign data (requires Sign)
+        - Verify signatures (requires Hash)
+      
+      why_it_matters: |
+        Decrypt is the crown jewel of permissions. If an attacker gains Decrypt 
+        permission, they can:
+        
+        1. Read all encrypted secrets (database passwords, API keys)
+        2. Access encrypted customer data (PII, financial info)
+        3. Decrypt backup data
+        4. Unwrap encryption keys
+        
+        **Critical security properties:**
+        1. **Confidentiality access**: Grants ability to read protected data
+        2. **Highest sensitivity**: Most valuable permission for attackers
+        3. **Audit critical**: Every decrypt operation must be logged
+        4. **Compliance focus**: GDPR, HIPAA, PCI-DSS focus on decrypt access
+        
+        Decrypt permission should be granted sparingly and audited continuously.
+      
+      key_components:
+        
+        symmetric_decryption:
+          what: "Using same key that encrypted data"
+          algorithms: ["AES-256-GCM", "ChaCha20-Poly1305", "AES-256-CBC"]
+          use_cases:
+            - "Reading encrypted database fields"
+            - "Decrypting configuration secrets"
+            - "Accessing encrypted files"
+          example: |
+            ciphertext = load_from_database("user_ssn")
+            key = get_decryption_key(key_id)
+            plaintext = aes_gcm_decrypt(ciphertext, key, nonce)
+            
+            # Decrypt permission required to access key
+            # Without Decrypt: Can't read plaintext
+            # With Decrypt: Full access to confidential data
+        
+        asymmetric_decryption:
+          what: "Using private key to decrypt data encrypted with public key"
+          algorithms: ["RSA-OAEP", "RSA-PKCS1", "ECIES"]
+          use_cases:
+            - "Decrypting session keys"
+            - "Reading encrypted messages"
+            - "Unwrapping transported keys"
+          example: |
+            encrypted_session_key = receive_from_sender()
+            private_key = get_private_key(key_id)  # Requires Decrypt
+            session_key = rsa_oaep_decrypt(
+                encrypted_session_key,
+                private_key
+            )
+            
+            # Private key access requires Decrypt permission
+            # Enables reading all data encrypted with public key
+        
+        envelope_decryption:
+          what: "Decrypt DEK with KEK, then decrypt data with DEK"
+          use_cases:
+            - "Cloud storage decryption"
+            - "Database decryption"
+            - "Backup decryption"
+          example: |
+            # Load encrypted data and encrypted DEK
+            ciphertext = load_data("s3://bucket/encrypted-file")
+            encrypted_dek = load_metadata("encrypted_dek")
+            
+            # Decrypt DEK (requires Decrypt permission)
+            dek = kms.decrypt(
+                key_id="master-key",
+                ciphertext=encrypted_dek
+            )
+            
+            # Decrypt data with DEK
+            plaintext = aes_gcm_decrypt(ciphertext, dek)
+            
+            # Decrypt permission on KEK grants access to all data
+            # encrypted with any DEK wrapped by that KEK
+      
+      how_it_works: |
+        Decrypt permission provides access to private keys:
+        
+        **Decryption flow:**
+        1. Receive ciphertext (+ nonce + auth tag if AEAD)
+        2. Access decryption key (requires Decrypt permission)
+        3. Perform decryption operation
+        4. Verify authentication tag (for AEAD)
+        5. Return plaintext
+        
+        **Security boundaries:**
+        - Private key never leaves KMS/HSM
+        - Each decrypt operation is logged
+        - Plaintext returned to caller
+        - Caller responsible for protecting plaintext in memory
+        
+        **Audit considerations:**
+        - Log: key_id, caller identity, timestamp, success/failure
+        - Alert on: unusual decrypt volume, new callers, off-hours access
+        - Monitor: Data exfiltration via excessive decrypts
+      
+      real_world_example: |
+        **Application secrets service**
+        
+        **Requirement:**
+        Production application needs to decrypt database passwords, API keys, 
+        and other secrets at startup and during operation.
+        
+        **HSED permission: H+D = 9 (hsed:audit) or E+D = 3 (hsed:vault)**
+        
+        For pure secrets access without signing: **hsed:audit (H+D = 9)**
+        
+        ```python
+        # Application secrets manager
+        class SecretsManager:
+            def __init__(self, kms_client):
+                self.kms = kms_client
+                self.cache = {}
+            
+            def get_secret(self, secret_name):
+                # Check cache first
+                if secret_name in self.cache:
+                    if not self.cache[secret_name].expired():
+                        return self.cache[secret_name].value
+                
+                # Load encrypted secret from store
+                encrypted_secret = secret_store.get(secret_name)
+                
+                # Verify metadata (H permission)
+                if not self.verify_secret_metadata(encrypted_secret):
+                    raise Exception("Secret metadata invalid")
+                
+                # Decrypt secret (D permission)
+                plaintext = self.kms.decrypt(
+                    key_id="application-secrets-key",
+                    ciphertext=encrypted_secret.ciphertext
+                )
+                
+                # Cache briefly
+                self.cache[secret_name] = CachedSecret(
+                    value=plaintext,
+                    expiry=now() + 300  # 5 minutes
+                )
+                
+                # Audit log
+                audit_log.info(f"Decrypted secret: {secret_name}")
+                
+                return plaintext
+        
+        # Usage
+        secrets = SecretsManager(kms_client)
+        db_password = secrets.get_secret("production-db-password")
+        api_key = secrets.get_secret("stripe-api-key")
+        ```
+        
+        **Security analysis:**
+        - ✅ Can decrypt secrets as needed
+        - ✅ Can verify secret metadata (H permission)
+        - ❌ Cannot sign data (no S permission)
+        - ❌ Cannot encrypt new secrets (no E permission - use separate service)
+        - ⚠️ If compromised: Attacker can decrypt all secrets this service 
+             accesses
+        
+        **Mitigation strategies:**
+        - Limit scope: Different keys for different secret categories
+        - Short-lived credentials: Rotate service credentials frequently
+        - Audit alerts: Alert on unusual decrypt patterns
+        - Rate limiting: Limit decrypts per time window
+        - Canary secrets: Decrypt of canary triggers immediate alert
+        
+        Decrypt is most sensitive - requires layered defenses.
+      
+      related_concepts:
+        - "Data at rest encryption: Protecting stored data"
+        - "Key hierarchy: KEK encrypts DEK, DEK encrypts data"
+        - "Secrets management: Centralized credential storage"
+  
+  # --------------------------------------------------------------------------
+  # Permission Bit Interactions
+  # --------------------------------------------------------------------------
+  
+  permission_interactions:
+    
+    hash_plus_sign:
+      
+      combination: "H + S = 12 (hsed:signer)"
+      
+      rationale: |
+        Sign permission logically includes Hash because:
+        1. Signing requires hashing the data first
+        2. You should verify your own signatures after creating them
+        3. Common pattern: sign new releases, verify existing releases
+      
+      use_cases:
+        - "CI/CD pipelines: Verify artifacts, sign releases"
+        - "Code signing services: Verify builds, sign executables"
+        - "Certificate authorities: Verify CSRs, sign certificates"
+      
+      security_considerations:
+        - "Cannot decrypt secrets (no D)"
+        - "Cannot encrypt arbitrary data (no E)"
+        - "Can forge signatures if compromised"
+        - "Should be protected with multi-party signing for critical use"
+    
+    encrypt_plus_decrypt:
+      
+      combination: "E + D = 3 (hsed:vault)"
+      
+      rationale: |
+        Symmetric encryption requires same key for encrypt and decrypt. 
+        Services managing secrets need both operations:
+        1. Encrypt when storing new secrets
+        2. Decrypt when retrieving secrets
+      
+      use_cases:
+        - "Secrets management: Store and retrieve credentials"
+        - "Key-value stores: Encrypt writes, decrypt reads"
+        - "Configuration services: Encrypt config, decrypt at runtime"
+      
+      security_considerations:
+        - "Full access to confidential data"
+        - "Cannot sign attestations (no S)"
+        - "Cannot verify signatures (no H)"
+        - "Most common permission for secrets services"
+    
+    hash_plus_decrypt:
+      
+      combination: "H + D = 9 (hsed:audit)"
+      
+      rationale: |
+        Audit and forensics teams need to:
+        1. Verify signatures on logs and evidence
+        2. Decrypt evidence for investigation
+        3. NOT be able to create new signatures or encrypt data
+      
+      use_cases:
+        - "Compliance auditing: Verify and read audit logs"
+        - "Forensic analysis: Verify and decrypt evidence"
+        - "Security investigations: Read encrypted incident data"
+      
+      security_considerations:
+        - "Can read encrypted data (high sensitivity)"
+        - "Cannot forge signatures (no S)"
+        - "Cannot hide data via encryption (no E)"
+        - "Appropriate for audit personnel"
+    
+    hash_plus_encrypt:
+      
+      combination: "H + E = 10 (hsed:dmz)"
+      
+      rationale: |
+        Boundary systems need to:
+        1. Verify incoming requests (signatures)
+        2. Encrypt data immediately
+        3. NOT be able to decrypt data (one-way flow)
+      
+      use_cases:
+        - "DMZ services: Verify requests, encrypt incoming data"
+        - "Data ingestion: Verify source, seal data"
+        - "API gateways: Authenticate requests, encrypt payloads"
+      
+      security_considerations:
+        - "Cannot decrypt past data (critical for DMZ compromise)"
+        - "Cannot sign attestations (no S)"
+        - "One-way data flow enforced"
+        - "Limits blast radius of perimeter breach"
+  
+  # --------------------------------------------------------------------------
+  # Key Takeaways
+  # --------------------------------------------------------------------------
+  
+  key_takeaways:
+    
+    critical_concepts:
+      - "Hash (H=8) is read-only verification: Check signatures, compute hashes, verify integrity. Safest permission to grant."
+      - "Sign (S=4) grants attestation authority: Create signatures, prove authenticity. Powerful and must be protected."
+      - "Encrypt (E=2) creates confidentiality: Seal data without ability to unseal. Critical for one-way data flows."
+      - "Decrypt (D=1) is most sensitive: Access all encrypted data. Grant sparingly, audit continuously."
+    
+    actionable_steps:
+      - "Audit your current services: Which operations do they actually perform? Most services only need 2-3 of these permissions."
+      - "Start with minimum: Default to Hash-only (8), add permissions only when justified by specific use case."
+      - "Separate confidentiality from attestation: Services that sign should NOT decrypt (12 not 13), services that decrypt should NOT sign (9 not 13)."
+    
+    common_pitfalls_summary:
+      - "Don't grant Decrypt unless service must read encrypted data - it's the most sensitive permission"
+      - "Don't combine Sign + Decrypt (13) unless absolutely necessary - creates god-mode credential"
+      - "Don't forget Hash permission - services need to verify before trusting"
+    
+    remember_this:
+      - "Hash checks, Sign proves, Encrypt seals, Decrypt reveals"
+      - "Decrypt is the crown jewel - protect it most carefully"
+      - "Most services need only 2-3 permissions, not all 4"
+    
+    next_steps:
+      - "Section 1.04 explains octal notation: How to combine these bits (H+S = 12)"
+      - "Section 1.05 introduces standard roles: hsed:signer (12), hsed:vault (3), hsed:audit (9)"
+      - "Section 1.06 covers enforcement: How to check permissions at runtime"
+
+---
