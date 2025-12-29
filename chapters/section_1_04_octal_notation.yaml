@@ -1,0 +1,702 @@
+# section_1_04_octal_notation.yaml
+---
+document_info:
+  chapter: "1"
+  section: "04"
+  title: "Octal Notation and Permission Composition"
+  version: "1.0.0"
+  author: "Raghav Dinesh"
+  github: "github.com/raghavpoonia"
+  license: "MIT"
+  created: "2025-12-29"
+  estimated_pages: 6
+  tags: ["hsed", "octal-notation", "binary", "bit-masking", "permission-composition"]
+
+# ============================================================================
+# SECTION 1.04: OCTAL NOTATION AND PERMISSION COMPOSITION
+# ============================================================================
+
+section_1_04_octal_notation:
+  
+  # --------------------------------------------------------------------------
+  # Overview and Context
+  # --------------------------------------------------------------------------
+  
+  overview: |
+    You know that Hash = 8, Sign = 4, Encrypt = 2, Decrypt = 1. But how do you 
+    express "Hash + Sign" or "Encrypt + Decrypt" concisely? This is where octal 
+    notation comes in.
+    
+    Just as chmod uses octal to represent rwx combinations (chmod 755), HSED 
+    uses octal to represent HSED combinations (hsed 12, hsed 3, hsed 9).
+    
+    The mapping is simple:
+    - Binary: 1100 (H=1, S=1, E=0, D=0)
+    - Decimal: 8+4 = 12
+    - Octal: 12
+    - Meaning: hsed:signer (Hash + Sign)
+    
+    This section teaches you to think in HSED octal notation. By the end, you'll 
+    compute permission values mentally, understand all 16 combinations (0-15), 
+    and recognize common patterns instantly.
+  
+  # --------------------------------------------------------------------------
+  # Core Concepts
+  # --------------------------------------------------------------------------
+  
+  core_concepts:
+    
+    binary_to_octal_fundamentals:
+      
+      definition: |
+        HSED uses 4 bits to represent permissions:
+        
+        ```
+        Bit position: 3  2  1  0
+        Permission:   H  S  E  D
+        Value:        8  4  2  1
+        ```
+        
+        Each bit is either 0 (permission not granted) or 1 (permission granted).
+        
+        To convert binary to decimal octal:
+        1. Set bit to 1 for each granted permission
+        2. Add up the values of all 1 bits
+        3. Result is the octal permission value
+        
+        Example: Hash + Sign
+        - H bit = 1, value = 8
+        - S bit = 1, value = 4
+        - E bit = 0, value = 0
+        - D bit = 0, value = 0
+        - Total: 8 + 4 = 12
+      
+      why_it_matters: |
+        Octal notation provides:
+        
+        1. **Conciseness**: "hsed 12" instead of "Hash and Sign permissions"
+        2. **Mental computation**: You can calculate values in your head
+        3. **Bit masking**: Easy to check if specific permission is granted
+        4. **Universal understanding**: Same as chmod, familiar to Unix users
+        5. **Unambiguous**: 12 always means H+S, no confusion
+        
+        This makes HSED as learnable as chmod - once you memorize the four 
+        values (8, 4, 2, 1), you can compute any combination.
+      
+      key_components:
+        
+        bit_positions:
+          what: "Position determines value"
+          mapping:
+            bit_3: "Hash (H) = 8 = 2^3"
+            bit_2: "Sign (S) = 4 = 2^2"
+            bit_1: "Encrypt (E) = 2 = 2^1"
+            bit_0: "Decrypt (D) = 1 = 2^0"
+          example: |
+            Binary: 1010
+            Bit 3 (H): 1 → +8
+            Bit 2 (S): 0 → +0
+            Bit 1 (E): 1 → +2
+            Bit 0 (D): 0 → +0
+            Total: 10 (H + E = hsed:dmz)
+        
+        powers_of_two:
+          what: "Each bit represents power of 2"
+          values:
+            - "2^3 = 8 (H)"
+            - "2^2 = 4 (S)"
+            - "2^1 = 2 (E)"
+            - "2^0 = 1 (D)"
+          significance: "Powers of 2 ensure unique representation - no two combinations give same value"
+        
+        decimal_representation:
+          what: "Sum of bit values"
+          range: "0 to 15 (2^4 - 1)"
+          examples:
+            - "0000 = 0 (no permissions)"
+            - "0001 = 1 (D only)"
+            - "1111 = 15 (all permissions)"
+      
+      how_it_works: |
+        **Binary to decimal conversion:**
+        
+        1. Write binary number: 1100
+        2. Assign positions:
+           ```
+           1  1  0  0
+           ↓  ↓  ↓  ↓
+           8  4  2  1
+           ```
+        3. Add values where bit = 1:
+           - Position 3: 1 × 8 = 8
+           - Position 2: 1 × 4 = 4
+           - Position 1: 0 × 2 = 0
+           - Position 0: 0 × 1 = 0
+        4. Sum: 8 + 4 = 12
+        
+        **Decimal to binary conversion:**
+        
+        1. Start with decimal: 12
+        2. Find largest power of 2 ≤ 12: 8
+           - Set bit 3 = 1
+           - Remaining: 12 - 8 = 4
+        3. Find largest power of 2 ≤ 4: 4
+           - Set bit 2 = 1
+           - Remaining: 4 - 4 = 0
+        4. Remaining bits = 0
+        5. Binary: 1100
+      
+      real_world_example: |
+        **Computing permissions mentally:**
+        
+        **Scenario 1: CI/CD needs to verify and sign**
+        - Verify = Hash = 8
+        - Sign = Sign = 4
+        - Total: 8 + 4 = 12
+        - Answer: hsed 12 (hsed:signer)
+        
+        **Scenario 2: Secrets manager needs to read/write secrets**
+        - Encrypt = 2
+        - Decrypt = 1
+        - Total: 2 + 1 = 3
+        - Answer: hsed 3 (hsed:vault)
+        
+        **Scenario 3: Auditor needs to verify and decrypt**
+        - Verify = Hash = 8
+        - Decrypt = 1
+        - Total: 8 + 1 = 9
+        - Answer: hsed 9 (hsed:audit)
+        
+        **Scenario 4: Break-glass admin needs everything**
+        - Hash = 8
+        - Sign = 4
+        - Encrypt = 2
+        - Decrypt = 1
+        - Total: 8 + 4 + 2 + 1 = 15
+        - Answer: hsed 15 (hsed:root)
+        
+        With practice, these computations become instant.
+      
+      related_concepts:
+        - "Binary arithmetic: Base-2 number system"
+        - "Bit masking: Using & operator to check permissions"
+        - "Powers of two: Foundation of binary representation"
+    
+    complete_permission_matrix:
+      
+      definition: |
+        HSED has 16 possible permission combinations (0-15). Here's the complete 
+        matrix:
+        
+        ```
+        Binary  Octal  Permissions  Common Name       Typical Use
+        ────────────────────────────────────────────────────────────
+        0000    0      ----         None              Revoked access
+        0001    1      ---D         Decrypt-only      Rare
+        0010    2      --E-         Encrypt-only      Rare
+        0011    3      --ED         Vault             Secrets management
+        0100    4      -S--         Sign-only         Very rare
+        0101    5      -S-D         Unusual           Avoid
+        0110    6      -SE-         Sealer            Blind signing
+        0111    7      -SED         Dangerous         Avoid
+        1000    8      H---         Verifier          Signature checking
+        1001    9      H--D         Audit             Compliance, forensics
+        1010    10     H-E-         DMZ               Boundary systems
+        1011    11     H-ED         Reader            Internal services
+        1100    12     HS--         Signer            CI/CD, code signing
+        1101    13     HS-D         Operator          Dangerous, needs justification
+        1110    14     HSE-         Admin             Key management
+        1111    15     HSED         Root              Full authority
+        ```
+      
+      why_it_matters: |
+        Understanding the complete matrix helps you:
+        
+        1. **Recognize patterns**: Common combinations (3, 9, 10, 12, 15) vs 
+           rare ones (1, 2, 4, 5, 7)
+        2. **Spot problems**: Combinations that violate separation of duties 
+           (7, 13)
+        3. **Design roles**: Choose appropriate permission level for each service
+        4. **Audit policies**: Quickly identify over-permissive grants
+        
+        Most production systems use only 5-6 of these combinations. The others 
+        are either too weak (0, 1, 2, 4, 8) or too dangerous (7, 13, 15 except 
+        for break-glass).
+      
+      key_components:
+        
+        common_combinations:
+          highly_recommended:
+            hsed_3: "Vault (E+D): Secrets management, symmetric encryption"
+            hsed_9: "Audit (H+D): Compliance, forensics, investigations"
+            hsed_10: "DMZ (H+E): Boundary systems, data ingestion"
+            hsed_12: "Signer (H+S): CI/CD, code signing, attestation"
+            hsed_14: "Admin (H+S+E): Key management without data access"
+          
+          special_use:
+            hsed_8: "Verifier (H): Pure signature verification, no other ops"
+            hsed_11: "Reader (H+E+D): Internal services with encryption"
+            hsed_15: "Root (H+S+E+D): Break-glass only, time-limited"
+          
+          rare_but_valid:
+            hsed_6: "Sealer (S+E): Blind signing scenarios, key wrapping"
+            hsed_13: "Operator (H+S+D): Service operations, needs justification"
+        
+        dangerous_combinations:
+          avoid_in_production:
+            hsed_7: "S+E+D without H: Can sign and access secrets, no verification ability"
+            hsed_5: "S+D without H or E: Can sign and decrypt, unusual pattern"
+          
+          rationale: |
+            Combinations without H (Hash) are dangerous because:
+            - Can't verify signatures before trusting them
+            - Can't validate data integrity
+            - Blind operations without verification
+            
+            Combination 7 (S+E+D) is especially bad:
+            - Can decrypt secrets (D)
+            - Can sign attestations (S)
+            - Can encrypt data (E)
+            - But can't verify anything (no H)
+            - Creates unauditable god-mode without verification
+        
+        weak_permissions:
+          insufficient_alone:
+            hsed_0: "No permissions: Revoked or not yet granted"
+            hsed_1: "D only: Can decrypt but not verify - unsafe"
+            hsed_2: "E only: Can encrypt but no other ops - rare use case"
+            hsed_4: "S only: Can sign but not verify own signatures - unusual"
+          
+          when_appropriate:
+            - "hsed 0: Temporary revocation during investigation"
+            - "hsed 1: Never appropriate alone, always combine with H"
+            - "hsed 2: DMZ write-only scenarios (rare)"
+            - "hsed 4: Blind signing services (very rare)"
+      
+      how_it_works: |
+        **Using the matrix for role design:**
+        
+        1. **Start with requirements**: What operations does service actually need?
+        2. **Find minimal combination**: Smallest octal value that covers needs
+        3. **Check against matrix**: Is this a common/recommended combination?
+        4. **Validate security**: Does this violate separation of duties?
+        5. **Document rationale**: Why this specific combination?
+        
+        **Example: Designing audit service**
+        
+        Requirements:
+        - Must verify log signatures (needs H)
+        - Must decrypt evidence for investigation (needs D)
+        - Should NOT sign or encrypt (no S or E)
+        
+        Computation:
+        - H = 8
+        - D = 1
+        - Total: 9
+        
+        Matrix lookup:
+        - 9 = H-D = "Audit" = Common/Recommended ✓
+        
+        Validation:
+        - Can verify signatures ✓
+        - Can decrypt evidence ✓
+        - Cannot forge signatures ✓
+        - Cannot hide data via encryption ✓
+        
+        Result: hsed 9 (hsed:audit) is correct role
+      
+      real_world_example: |
+        **Permission matrix usage in practice:**
+        
+        **Company: E-commerce platform**
+        
+        **Services and their HSED permissions:**
+        
+        1. **Payment processing (hsed 3 - vault)**
+           - Encrypts credit card numbers
+           - Decrypts for payment processing
+           - No signing or verification needed
+           Binary: 0011, Octal: 3
+        
+        2. **Order signing service (hsed 12 - signer)**
+           - Verifies customer signatures
+           - Signs order confirmations
+           - No access to encrypted payment data
+           Binary: 1100, Octal: 12
+        
+        3. **Fraud detection (hsed 9 - audit)**
+           - Verifies transaction signatures
+           - Decrypts transaction data for analysis
+           - Cannot forge signatures or hide data
+           Binary: 1001, Octal: 9
+        
+        4. **API gateway (hsed 10 - dmz)**
+           - Verifies incoming request signatures
+           - Encrypts customer data at boundary
+           - Cannot decrypt past data (breach mitigation)
+           Binary: 1010, Octal: 10
+        
+        5. **Release pipeline (hsed 12 - signer)**
+           - Verifies build artifacts
+           - Signs deployment attestations
+           - No secret access
+           Binary: 1100, Octal: 12
+        
+        6. **Security team (hsed 9 - audit)**
+           - Verifies all signatures across system
+           - Decrypts data for investigations
+           - Cannot modify or sign data
+           Binary: 1001, Octal: 9
+        
+        7. **Break-glass admin (hsed 15 - root)**
+           - Full authority for emergencies
+           - Time-limited (4 hours max)
+           - Requires MFA + approval
+           Binary: 1111, Octal: 15
+        
+        **Pattern observed:**
+        - Most services use: 3, 9, 10, 12 (4 common values)
+        - Only break-glass uses: 15 (full authority)
+        - No services use: 0-2, 4-8, 11, 13-14 (not needed)
+        
+        This is typical - most organizations need only 4-5 permission values.
+      
+      related_concepts:
+        - "Separation of duties: Different services different permissions"
+        - "Least privilege: Minimum permissions for functionality"
+        - "Permission matrix: Complete enumeration of possibilities"
+    
+    bit_masking_and_checking:
+      
+      definition: |
+        Bit masking is the technique for checking if a specific permission is 
+        granted within an HSED value. It uses the bitwise AND operation (&).
+        
+        **Formula:**
+        ```
+        has_permission = (granted_permissions & required_permission) != 0
+        ```
+        
+        **Example: Check if hsed 12 includes Decrypt**
+        ```
+        granted = 12 (binary: 1100)
+        required = 1 (binary: 0001) [Decrypt bit]
+        
+        12 & 1 = 1100 & 0001 = 0000 = 0
+        
+        Result: 0 != 0 is False
+        Conclusion: hsed 12 does NOT include Decrypt ✓
+        ```
+      
+      why_it_matters: |
+        Bit masking enables:
+        
+        1. **Runtime enforcement**: Check permissions before operations
+        2. **Policy validation**: Verify policies grant required permissions
+        3. **Audit queries**: Find all roles with specific permission
+        4. **Composition**: Combine permissions from multiple sources
+        
+        This is how HSED enforcement works under the hood - every permission 
+        check is a bit mask operation.
+      
+      key_components:
+        
+        bitwise_and_operation:
+          what: "& operator compares bits position by position"
+          truth_table: |
+            A & B = Result
+            0 & 0 = 0
+            0 & 1 = 0
+            1 & 0 = 0
+            1 & 1 = 1
+          example: |
+            1100 (12)
+          & 0100 (4)
+          ------
+            0100 (4)  → Non-zero, so permission granted
+        
+        checking_single_permission:
+          pattern: "granted & permission_bit"
+          examples:
+            check_hash: "granted & 8"
+            check_sign: "granted & 4"
+            check_encrypt: "granted & 2"
+            check_decrypt: "granted & 1"
+        
+        checking_multiple_permissions:
+          pattern: "(granted & required_mask) == required_mask"
+          example: |
+            # Check if has both Hash AND Sign
+            required = 8 | 4  # 12 (H+S)
+            granted = 12
+            
+            (12 & 12) == 12  → True, has both ✓
+            
+            # Check if has both Sign AND Decrypt
+            required = 4 | 1  # 5 (S+D)
+            granted = 12
+            
+            (12 & 5) == 5  → False, missing Decrypt ✗
+      
+      how_it_works: |
+        **Permission checking algorithm:**
+        
+        ```python
+        class HSEDPermissions:
+            HASH = 8
+            SIGN = 4
+            ENCRYPT = 2
+            DECRYPT = 1
+            
+            @staticmethod
+            def can_hash(permissions: int) -> bool:
+                return (permissions & HSEDPermissions.HASH) != 0
+            
+            @staticmethod
+            def can_sign(permissions: int) -> bool:
+                return (permissions & HSEDPermissions.SIGN) != 0
+            
+            @staticmethod
+            def can_encrypt(permissions: int) -> bool:
+                return (permissions & HSEDPermissions.ENCRYPT) != 0
+            
+            @staticmethod
+            def can_decrypt(permissions: int) -> bool:
+                return (permissions & HSEDPermissions.DECRYPT) != 0
+            
+            @staticmethod
+            def has_all(permissions: int, required: int) -> bool:
+                return (permissions & required) == required
+            
+            @staticmethod
+            def has_any(permissions: int, required: int) -> bool:
+                return (permissions & required) != 0
+        ```
+        
+        **Usage:**
+        ```python
+        signer_role = 12  # H+S
+        
+        # Check individual permissions
+        assert HSEDPermissions.can_hash(signer_role)     # True
+        assert HSEDPermissions.can_sign(signer_role)     # True
+        assert not HSEDPermissions.can_decrypt(signer_role)  # False
+        
+        # Check multiple permissions
+        assert HSEDPermissions.has_all(signer_role, 12)  # Has H+S
+        assert not HSEDPermissions.has_all(signer_role, 13)  # Missing D
+        ```
+      
+      real_world_example: |
+        **KMS permission enforcement:**
+        
+        ```python
+        class KMSService:
+            def __init__(self, permission_store):
+                self.permissions = permission_store
+            
+            def sign(self, key_id: str, data: bytes, principal: str) -> bytes:
+                # Get principal's permissions
+                perms = self.permissions.get(principal, key_id)
+                
+                # Check Sign permission (bit 2 = 4)
+                if not (perms & 4):
+                    raise PermissionDenied(
+                        f"{principal} lacks Sign permission for {key_id}"
+                    )
+                
+                # Perform signing
+                signature = self._sign_internal(key_id, data)
+                
+                # Audit log
+                self.audit_log(
+                    principal=principal,
+                    operation="sign",
+                    key_id=key_id,
+                    granted_permissions=perms
+                )
+                
+                return signature
+            
+            def decrypt(self, key_id: str, ciphertext: bytes, principal: str) -> bytes:
+                # Get principal's permissions
+                perms = self.permissions.get(principal, key_id)
+                
+                # Check Decrypt permission (bit 0 = 1)
+                if not (perms & 1):
+                    raise PermissionDenied(
+                        f"{principal} lacks Decrypt permission for {key_id}"
+                    )
+                
+                # Perform decryption
+                plaintext = self._decrypt_internal(key_id, ciphertext)
+                
+                # Audit log
+                self.audit_log(
+                    principal=principal,
+                    operation="decrypt",
+                    key_id=key_id,
+                    granted_permissions=perms
+                )
+                
+                return plaintext
+        
+        # Usage
+        kms = KMSService(permission_store)
+        
+        # CI/CD with hsed:signer (12 = H+S)
+        signature = kms.sign("signing-key", data, "ci-cd-service")  # ✓ Allowed
+        
+        try:
+            secret = kms.decrypt("secrets-key", ciphertext, "ci-cd-service")
+        except PermissionDenied:
+            # ✗ Denied: hsed 12 doesn't include Decrypt (bit 0)
+            pass
+        ```
+        
+        Every KMS/HSM operation checks permissions using bit masking before 
+        allowing the operation to proceed.
+      
+      related_concepts:
+        - "Bitwise operations: AND, OR, XOR for permission logic"
+        - "Runtime enforcement: Checking permissions at execution time"
+        - "Fail-closed: Deny by default, allow only if permission granted"
+  
+  # --------------------------------------------------------------------------
+  # Practical Implementation
+  # --------------------------------------------------------------------------
+  
+  practical_implementation:
+    
+    mental_computation_techniques:
+      
+      overview: "Strategies for computing HSED values without calculator"
+      
+      when_to_use:
+        - "Designing roles during whiteboard sessions"
+        - "Reviewing policies during code review"
+        - "Explaining HSED to colleagues"
+        - "Debugging permission issues"
+      
+      step_by_step_process:
+        
+        step_1:
+          action: "Memorize the four values"
+          details: |
+            Learn by heart:
+            - Hash = 8
+            - Sign = 4
+            - Encrypt = 2
+            - Decrypt = 1
+            
+            Mnemonic: "8421" (powers of 2 descending)
+            Or: "H-S-E-D" = "8-4-2-1"
+          success_criteria: "Can recall all four values instantly"
+        
+        step_2:
+          action: "Practice common combinations"
+          details: |
+            Memorize frequent patterns:
+            - H+S = 8+4 = 12 (signer)
+            - E+D = 2+1 = 3 (vault)
+            - H+D = 8+1 = 9 (audit)
+            - H+E = 8+2 = 10 (dmz)
+            - All = 8+4+2+1 = 15 (root)
+            
+            Practice until automatic.
+          success_criteria: "Can recall these five without computation"
+        
+        step_3:
+          action: "Decompose unfamiliar values"
+          details: |
+            For values you don't recognize:
+            1. Is it ≥ 8? If yes, includes Hash (-8)
+            2. Remainder ≥ 4? If yes, includes Sign (-4)
+            3. Remainder ≥ 2? If yes, includes Encrypt (-2)
+            4. Remainder ≥ 1? If yes, includes Decrypt (-1)
+            
+            Example: What is hsed 11?
+            - 11 ≥ 8? Yes → Has Hash (11-8 = 3)
+            - 3 ≥ 4? No → No Sign
+            - 3 ≥ 2? Yes → Has Encrypt (3-2 = 1)
+            - 1 ≥ 1? Yes → Has Decrypt
+            - Result: H+E+D (11 = 8+2+1)
+          success_criteria: "Can decompose any value 0-15 in <10 seconds"
+        
+        step_4:
+          action: "Verify with bit checking"
+          details: |
+            Double-check by testing specific bits:
+            
+            "Does hsed 12 include Decrypt?"
+            - 12 in binary: 1100
+            - Decrypt bit (position 0): 0
+            - Answer: No ✓
+            
+            "Does hsed 9 include Hash?"
+            - 9 in binary: 1001
+            - Hash bit (position 3): 1
+            - Answer: Yes ✓
+          success_criteria: "Can verify permission membership mentally"
+      
+      complete_example: |
+        **Scenario: Designing permissions for log aggregation service**
+        
+        **Requirements:**
+        - Must verify log signatures (needs H)
+        - Must decrypt encrypted logs for indexing (needs D)
+        - Should NOT sign or encrypt (no S or E)
+        
+        **Mental computation:**
+        1. Needs Hash: +8
+        2. Needs Decrypt: +1
+        3. Total: 8+1 = 9
+        
+        **Verification:**
+        - 9 = 1001 in binary
+        - Bit 3 (H): 1 ✓
+        - Bit 2 (S): 0 ✓
+        - Bit 1 (E): 0 ✓
+        - Bit 0 (D): 1 ✓
+        
+        **Check against matrix:**
+        - 9 = H-D = "Audit" role
+        - Common, recommended combination ✓
+        
+        **Result:** hsed 9 (hsed:audit)
+        
+        Entire computation took <30 seconds mentally.
+  
+  # --------------------------------------------------------------------------
+  # Key Takeaways
+  # --------------------------------------------------------------------------
+  
+  key_takeaways:
+    
+    critical_concepts:
+      - "Octal notation: H=8, S=4, E=2, D=1. Add them together. H+S = 8+4 = 12. Simple as chmod."
+      - "16 combinations (0-15), but only 5-6 are commonly used: 3 (vault), 9 (audit), 10 (dmz), 12 (signer), 15 (root)."
+      - "Bit masking checks permissions: (granted & required) != 0. This is how runtime enforcement works."
+      - "Mental computation: Memorize 8-4-2-1, practice common patterns (12, 3, 9, 10, 15), decompose unfamiliar values by subtraction."
+    
+    actionable_steps:
+      - "Practice mental math: Next 10 times you think about permissions, compute the octal value manually. Build muscle memory."
+      - "Memorize the big 5: hsed 12 (signer), hsed 3 (vault), hsed 9 (audit), hsed 10 (dmz), hsed 15 (root). These cover 90% of use cases."
+      - "Use bit checking for validation: When reviewing policies, mentally check: 'Does this role have Decrypt? (value & 1)'"
+    
+    common_pitfalls_summary:
+      - "Don't forget powers of two - each bit doubles the previous (1, 2, 4, 8)"
+      - "Don't confuse octal with decimal - hsed uses decimal representation of binary (12, not 014)"
+      - "Don't skip the bit checking step - mental math can have errors, verify with bit masks"
+    
+    remember_this:
+      - "8-4-2-1: The only numbers you need to memorize"
+      - "Most roles are one of five values: 3, 9, 10, 12, or 15"
+      - "If you can do chmod 755, you can do hsed 12"
+    
+    next_steps:
+      - "Section 1.05 introduces standard roles: hsed:root (15), hsed:signer (12), hsed:vault (3), hsed:audit (9), hsed:dmz (10)"
+      - "Section 1.06 covers enforcement: How to check permissions at runtime using bit masks"
+      - "Section 1.07 explores security principles: Least privilege and separation of duties with HSED"
+
+---
