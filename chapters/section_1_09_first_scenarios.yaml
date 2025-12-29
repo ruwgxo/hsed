@@ -1,0 +1,837 @@
+# section_1_09_first_scenarios.yaml
+---
+document_info:
+  chapter: "1"
+  section: "09"
+  title: "Applying HSED: First Real-World Scenarios"
+  version: "1.0.0"
+  author: "Raghav Dinesh"
+  github: "github.com/raghavpoonia"
+  license: "MIT"
+  created: "2025-12-29"
+  estimated_pages: 6
+  tags: ["hsed", "real-world", "scenarios", "ci-cd", "secrets-management", "audit"]
+
+# ============================================================================
+# SECTION 1.09: APPLYING HSED - FIRST REAL-WORLD SCENARIOS
+# ============================================================================
+
+section_1_09_first_scenarios:
+  
+  # --------------------------------------------------------------------------
+  # Overview and Context
+  # --------------------------------------------------------------------------
+  
+  overview: |
+    You now understand HSED theory: permission bits (H, S, E, D), standard roles 
+    (signer, vault, audit), security principles (least privilege, separation of 
+    duties), and enforcement patterns. Time to apply this knowledge.
+    
+    This section walks through four common scenarios step-by-step:
+    
+    1. **CI/CD Pipeline**: Signing releases after successful builds
+    2. **Secrets Manager**: Storing and retrieving application credentials
+    3. **Audit System**: Compliance verification and forensic investigation
+    4. **Multi-Tier Web App**: Different permissions at each layer
+    
+    Each scenario follows the same process:
+    - Identify requirements (what needs to happen)
+    - Map to HSED operations (which permission bits needed)
+    - Select appropriate role (standard or custom)
+    - Validate security properties (does it meet principles?)
+    - Implement (concrete example)
+    
+    By the end, you'll be able to apply HSED to your own systems.
+  
+  # --------------------------------------------------------------------------
+  # Scenario 1: CI/CD Pipeline
+  # --------------------------------------------------------------------------
+  
+  scenario_1_cicd_pipeline:
+    
+    overview: |
+      **Requirement**: Automatically sign container images and deployment 
+      artifacts after successful CI/CD build and tests.
+    
+    step_by_step_analysis:
+      
+      step_1_identify_requirements:
+        what_service_does:
+          - "Runs automated tests on code commits"
+          - "Builds container images"
+          - "Creates deployment artifacts"
+          - "Signs artifacts after successful build"
+          - "Publishes signed artifacts to registry"
+        
+        what_service_should_not_do:
+          - "Decrypt production secrets"
+          - "Access encrypted customer data"
+          - "Encrypt arbitrary data"
+          - "Modify production systems directly"
+      
+      step_2_map_to_hsed_operations:
+        required_operations:
+          verify_base_images:
+            operation: "Hash (H)"
+            reason: "Verify signatures on base images before using them"
+            example: "Verify ubuntu:latest signature before building on it"
+          
+          sign_artifacts:
+            operation: "Sign (S)"
+            reason: "Create signature on built artifacts"
+            example: "Sign container image after successful build"
+          
+          verify_own_signatures:
+            operation: "Hash (H)"
+            reason: "Best practice - verify signature after creating it"
+            example: "Verify we created valid signature"
+        
+        operations_not_needed:
+          encrypt:
+            operation: "Encrypt (E)"
+            reason: "CI/CD doesn't encrypt data"
+            why_not: "No secrets handling, no data protection responsibility"
+          
+          decrypt:
+            operation: "Decrypt (D)"
+            reason: "CI/CD shouldn't access production secrets"
+            why_not: "Violates least privilege and separation of duties"
+      
+      step_3_compute_permissions:
+        calculation: |
+          Required operations:
+          - Hash (H) = 8
+          - Sign (S) = 4
+          
+          Total: 8 + 4 = 12
+          
+          Binary: 1100
+          Octal: 12
+        
+        role_match: "hsed:signer (12) - Perfect match ✓"
+      
+      step_4_validate_security:
+        least_privilege_check:
+          question: "Does CI/CD have minimum necessary permissions?"
+          answer: "Yes - only H+S, no E or D"
+          validation: "✓ Passes least privilege"
+        
+        separation_of_duties_check:
+          question: "Can CI/CD complete critical operations alone?"
+          answer: "No - can sign releases but can't decrypt secrets"
+          validation: "✓ Passes separation of duties"
+        
+        blast_radius_check:
+          question: "If CI/CD compromised, what can attacker do?"
+          answer: "Sign malicious releases, but can't access secrets"
+          mitigation: "Multi-party signing for critical releases"
+          validation: "✓ Acceptable blast radius"
+      
+      step_5_implementation:
+        
+        github_actions_example: |
+          # .github/workflows/release.yml
+          name: Release Pipeline
+          
+          on:
+            push:
+              tags:
+                - 'v*'
+          
+          jobs:
+            build_and_sign:
+              runs-on: ubuntu-latest
+              
+              permissions:
+                id-token: write  # For OIDC
+                contents: read
+              
+              steps:
+                - uses: actions/checkout@v3
+                
+                - name: Build container image
+                  run: |
+                    docker build -t myapp:${{ github.sha }} .
+                
+                - name: Run tests
+                  run: |
+                    docker run myapp:${{ github.sha }} npm test
+                
+                - name: Sign image (hsed:signer)
+                  env:
+                    HSED_ROLE: signer
+                    HSED_PERMISSIONS: 12
+                  run: |
+                    # Get signing key (OIDC-authenticated)
+                    export SIGNING_KEY=$(aws kms get-signing-key \
+                      --role hsed-signer \
+                      --key-id production-signing-key)
+                    
+                    # Create image digest
+                    IMAGE_DIGEST=$(docker images --digests myapp:${{ github.sha }} \
+                      --format "{{.Digest}}")
+                    
+                    # Sign image digest
+                    cosign sign \
+                      --key $SIGNING_KEY \
+                      myapp@$IMAGE_DIGEST
+                    
+                    # Verify signature (best practice)
+                    cosign verify \
+                      --key $SIGNING_KEY.pub \
+                      myapp@$IMAGE_DIGEST
+                
+                - name: Push signed image
+                  run: |
+                    docker push myapp:${{ github.sha }}
+        
+        security_properties: |
+          ✓ CI/CD can verify base images (H permission)
+          ✓ CI/CD can sign releases (S permission)
+          ✗ CI/CD cannot decrypt secrets (no D permission)
+          ✗ CI/CD cannot encrypt data (no E permission)
+          
+          If CI/CD compromised:
+          - Attacker can sign malicious releases (mitigate with multi-party)
+          - Attacker CANNOT access production secrets
+          - Attacker CANNOT exfiltrate encrypted data
+    
+    key_decisions:
+      - "Used hsed:signer (12) - standard role, no custom needed"
+      - "Verified own signatures - catches signing failures early"
+      - "No decrypt access - secrets managed separately"
+      - "OIDC authentication - temporary credentials only"
+  
+  # --------------------------------------------------------------------------
+  # Scenario 2: Secrets Manager
+  # --------------------------------------------------------------------------
+  
+  scenario_2_secrets_manager:
+    
+    overview: |
+      **Requirement**: Service that stores encrypted application secrets 
+      (database passwords, API keys) and provides them to applications at runtime.
+    
+    step_by_step_analysis:
+      
+      step_1_identify_requirements:
+        what_service_does:
+          - "Receives new secrets from administrators"
+          - "Encrypts secrets before storing"
+          - "Stores encrypted secrets in database"
+          - "Retrieves encrypted secrets on request"
+          - "Decrypts secrets for authorized applications"
+          - "Rotates secrets periodically"
+        
+        what_service_should_not_do:
+          - "Sign attestations or documents"
+          - "Verify signatures"
+          - "Access other encrypted data outside its scope"
+      
+      step_2_map_to_hsed_operations:
+        required_operations:
+          store_secrets:
+            operation: "Encrypt (E)"
+            reason: "Encrypt plaintext secrets before storing"
+            example: "Admin sets db-password, service encrypts it"
+          
+          retrieve_secrets:
+            operation: "Decrypt (D)"
+            reason: "Decrypt stored secrets for applications"
+            example: "App requests db-password, service decrypts it"
+        
+        operations_not_needed:
+          hash:
+            operation: "Hash (H)"
+            reason: "Secrets manager doesn't verify signatures"
+            why_not: "Focus on confidentiality, not attestation"
+          
+          sign:
+            operation: "Sign (S)"
+            reason: "Secrets manager doesn't create attestations"
+            why_not: "Separate concern, handled by different service"
+      
+      step_3_compute_permissions:
+        calculation: |
+          Required operations:
+          - Encrypt (E) = 2
+          - Decrypt (D) = 1
+          
+          Total: 2 + 1 = 3
+          
+          Binary: 0011
+          Octal: 3
+        
+        role_match: "hsed:vault (3) - Perfect match ✓"
+      
+      step_4_validate_security:
+        least_privilege_check:
+          question: "Does secrets manager have minimum permissions?"
+          answer: "Yes - only E+D for confidentiality operations"
+          validation: "✓ Passes least privilege"
+        
+        separation_of_duties_check:
+          question: "Can secrets manager forge attestations?"
+          answer: "No - lacks Sign permission"
+          validation: "✓ Passes separation (can't sign audit logs)"
+        
+        blast_radius_check:
+          question: "If secrets manager compromised, what's exposed?"
+          answer: "Secrets it manages, but can't forge signatures or access other encrypted data"
+          mitigation: "Separate vaults per sensitivity level, rate limiting, canary secrets"
+          validation: "✓ Acceptable with mitigations"
+      
+      step_5_implementation:
+        
+        python_implementation: |
+          from hsed import enforce, Permissions
+          
+          class SecretsManager:
+              """
+              HSED-enforced secrets management service.
+              Permissions: 3 (E+D = hsed:vault)
+              """
+              
+              def __init__(self, kms_client, db_client):
+                  self.kms = kms_client
+                  self.db = db_client
+                  self.permissions = Permissions.ENCRYPT | Permissions.DECRYPT  # 3
+              
+              @enforce(permissions=Permissions.ENCRYPT)
+              def store_secret(self, name: str, value: str, metadata: dict) -> str:
+                  """Store new secret (requires E permission)"""
+                  
+                  # Validate inputs
+                  if not name or not value:
+                      raise ValueError("Name and value required")
+                  
+                  # Encrypt secret value
+                  encrypted = self.kms.encrypt(
+                      key_id="application-secrets-key",
+                      plaintext=value
+                  )
+                  
+                  # Store encrypted secret
+                  secret_id = self.db.insert({
+                      "name": name,
+                      "encrypted_value": encrypted,
+                      "metadata": metadata,
+                      "version": 1,
+                      "created_at": datetime.utcnow(),
+                      "created_by": current_principal()
+                  })
+                  
+                  # Audit log (no plaintext in logs!)
+                  audit_log.info(
+                      f"Stored secret: {name}",
+                      secret_id=secret_id,
+                      principal=current_principal()
+                  )
+                  
+                  return secret_id
+              
+              @enforce(permissions=Permissions.DECRYPT)
+              def retrieve_secret(self, name: str) -> str:
+                  """Retrieve secret (requires D permission)"""
+                  
+                  # Load encrypted secret
+                  secret = self.db.get(name)
+                  if not secret:
+                      raise SecretNotFoundError(f"Secret not found: {name}")
+                  
+                  # Check access authorization
+                  if not is_authorized(current_principal(), secret):
+                      raise UnauthorizedError(f"Not authorized for: {name}")
+                  
+                  # Decrypt secret value
+                  plaintext = self.kms.decrypt(
+                      key_id="application-secrets-key",
+                      ciphertext=secret.encrypted_value
+                  )
+                  
+                  # Audit log
+                  audit_log.info(
+                      f"Retrieved secret: {name}",
+                      principal=current_principal(),
+                      sensitivity=secret.metadata.get("sensitivity", "normal")
+                  )
+                  
+                  # Alert on high-sensitivity access
+                  if secret.metadata.get("sensitivity") == "high":
+                      alert_security_team(
+                          f"High-sensitivity secret accessed: {name} "
+                          f"by {current_principal()}"
+                      )
+                  
+                  return plaintext
+              
+              @enforce(permissions=Permissions.ENCRYPT | Permissions.DECRYPT)
+              def rotate_secret(self, name: str, new_value: str) -> str:
+                  """Rotate secret to new value (requires E+D)"""
+                  
+                  # Get current secret
+                  old_secret = self.db.get(name)
+                  
+                  # Encrypt new value
+                  encrypted_new = self.kms.encrypt(
+                      key_id="application-secrets-key",
+                      plaintext=new_value
+                  )
+                  
+                  # Store new version
+                  self.db.insert_version({
+                      "name": name,
+                      "encrypted_value": encrypted_new,
+                      "version": old_secret.version + 1,
+                      "rotated_at": datetime.utcnow(),
+                      "rotated_by": current_principal()
+                  })
+                  
+                  # Keep old version for grace period (1 hour)
+                  self.db.schedule_deletion(
+                      name, 
+                      old_secret.version,
+                      delay_hours=1
+                  )
+                  
+                  audit_log.info(f"Rotated secret: {name}")
+                  
+                  return name
+        
+        security_properties: |
+          ✓ Can encrypt secrets (E permission)
+          ✓ Can decrypt secrets (D permission)
+          ✗ Cannot sign audit logs (no S permission - separate service)
+          ✗ Cannot verify signatures (no H permission)
+          
+          If secrets manager compromised:
+          - Attacker can read managed secrets (high impact)
+          - Attacker CANNOT forge audit logs (no S)
+          - Attacker CANNOT access other encrypted data (different keys)
+          
+          Mitigations:
+          - Separate vaults per sensitivity (prod/dev, critical/normal)
+          - Rate limiting on decrypt operations
+          - Canary secrets (decrypt triggers immediate alert)
+          - Anomaly detection on access patterns
+    
+    key_decisions:
+      - "Used hsed:vault (3) - standard role for secrets management"
+      - "No signing ability - audit logs signed by separate service"
+      - "Enforcement decorators - permissions checked at method level"
+      - "Separate keys per environment - blast radius containment"
+  
+  # --------------------------------------------------------------------------
+  # Scenario 3: Audit System
+  # --------------------------------------------------------------------------
+  
+  scenario_3_audit_system:
+    
+    overview: |
+      **Requirement**: Security team needs to verify signatures on audit logs 
+      and decrypt encrypted evidence during investigations.
+    
+    step_by_step_analysis:
+      
+      step_1_identify_requirements:
+        what_service_does:
+          - "Collects audit logs from all services"
+          - "Verifies signatures on audit logs"
+          - "Decrypts logs for compliance review"
+          - "Generates compliance reports"
+          - "Investigates security incidents"
+          - "Provides forensic analysis"
+        
+        what_service_should_not_do:
+          - "Create or modify audit logs"
+          - "Sign any data"
+          - "Encrypt data (evidence preservation)"
+      
+      step_2_map_to_hsed_operations:
+        required_operations:
+          verify_log_signatures:
+            operation: "Hash (H)"
+            reason: "Verify audit logs haven't been tampered with"
+            example: "Verify each log entry's signature"
+          
+          decrypt_logs:
+            operation: "Decrypt (D)"
+            reason: "Access encrypted log contents for analysis"
+            example: "Decrypt investigation evidence"
+        
+        operations_not_needed:
+          sign:
+            operation: "Sign (S)"
+            reason: "Auditors shouldn't create attestations"
+            why_not: "Violates separation - can't audit what you signed"
+          
+          encrypt:
+            operation: "Encrypt (E)"
+            reason: "Auditors shouldn't hide evidence"
+            why_not: "Read-only from security perspective"
+      
+      step_3_compute_permissions:
+        calculation: |
+          Required operations:
+          - Hash (H) = 8
+          - Decrypt (D) = 1
+          
+          Total: 8 + 1 = 9
+          
+          Binary: 1001
+          Octal: 9
+        
+        role_match: "hsed:audit (9) - Perfect match ✓"
+      
+      step_4_validate_security:
+        least_privilege_check:
+          question: "Does audit system have minimum permissions?"
+          answer: "Yes - only H+D for verification and investigation"
+          validation: "✓ Passes least privilege"
+        
+        separation_of_duties_check:
+          question: "Can auditors tamper with evidence?"
+          answer: "No - can't sign or encrypt, only read and verify"
+          validation: "✓ Passes separation (read-only investigation)"
+        
+        blast_radius_check:
+          question: "If audit system compromised, what's exposed?"
+          answer: "Audit logs and investigation data, but can't forge or hide"
+          validation: "✓ Acceptable - can read but not modify"
+      
+      step_5_implementation:
+        
+        compliance_audit_tool: |
+          class ComplianceAuditor:
+              """
+              HSED-enforced audit and compliance tool.
+              Permissions: 9 (H+D = hsed:audit)
+              """
+              
+              def __init__(self, kms_client, log_store):
+                  self.kms = kms_client
+                  self.logs = log_store
+                  self.permissions = 9  # H+D
+              
+              @enforce(permissions=Permissions.HASH | Permissions.DECRYPT)
+              def audit_access_controls(self, date_range: tuple) -> AuditReport:
+                  """
+                  Verify all crypto operations had proper authorization.
+                  Requires H (verify) and D (decrypt logs).
+                  """
+                  
+                  # Retrieve encrypted audit logs
+                  encrypted_logs = self.logs.get_range(date_range)
+                  
+                  violations = []
+                  verified_count = 0
+                  
+                  for encrypted_log in encrypted_logs:
+                      # Decrypt log entry (D permission)
+                      log = self.kms.decrypt(
+                          "audit-log-key",
+                          encrypted_log.ciphertext
+                      )
+                      
+                      # Verify log signature (H permission)
+                      signature_valid = self.kms.verify(
+                          message=log.data,
+                          signature=log.signature,
+                          key_id=log.signing_key
+                      )
+                      
+                      if not signature_valid:
+                          violations.append({
+                              "timestamp": log.timestamp,
+                              "error": "Invalid signature - possible tampering",
+                              "log_id": log.id
+                          })
+                          continue
+                      
+                      verified_count += 1
+                      
+                      # Check if operation was authorized
+                      if not self._check_authorization(log):
+                          violations.append({
+                              "timestamp": log.timestamp,
+                              "principal": log.principal,
+                              "operation": log.operation,
+                              "error": "Unauthorized operation"
+                          })
+                  
+                  return AuditReport(
+                      period=date_range,
+                      total_logs=len(encrypted_logs),
+                      verified_logs=verified_count,
+                      violations=violations,
+                      auditor=current_principal(),
+                      generated_at=datetime.utcnow()
+                  )
+              
+              @enforce(permissions=Permissions.HASH | Permissions.DECRYPT)
+              def investigate_incident(self, incident_id: str) -> Investigation:
+                  """
+                  Forensic investigation of security incident.
+                  Requires H (verify evidence) and D (decrypt data).
+                  """
+                  
+                  incident = self.logs.get_incident(incident_id)
+                  
+                  # Verify evidence integrity
+                  evidence_valid = all(
+                      self.kms.verify(e.data, e.signature, e.key_id)
+                      for e in incident.evidence
+                  )
+                  
+                  if not evidence_valid:
+                      raise EvidenceIntegrityError(
+                          f"Evidence for {incident_id} failed verification"
+                      )
+                  
+                  # Decrypt evidence for analysis
+                  decrypted_evidence = []
+                  for evidence in incident.evidence:
+                      if evidence.encrypted:
+                          plaintext = self.kms.decrypt(
+                              evidence.key_id,
+                              evidence.ciphertext
+                          )
+                          decrypted_evidence.append(plaintext)
+                      else:
+                          decrypted_evidence.append(evidence.data)
+                  
+                  # Analyze but don't modify
+                  findings = self._analyze_evidence(decrypted_evidence)
+                  
+                  # Generate investigation report
+                  # Note: Cannot sign report (no S permission)
+                  # Separate authority validates findings
+                  
+                  return Investigation(
+                      incident_id=incident_id,
+                      evidence_verified=evidence_valid,
+                      findings=findings,
+                      investigator=current_principal(),
+                      completed_at=datetime.utcnow(),
+                      requires_external_signature=True
+                  )
+        
+        security_properties: |
+          ✓ Can verify all signatures (H permission)
+          ✓ Can decrypt for investigation (D permission)
+          ✗ Cannot sign reports (no S permission - separate validation)
+          ✗ Cannot encrypt evidence (no E permission - can't hide)
+          
+          Separation of duties maintained:
+          - Auditors investigate but don't sign findings
+          - Security leadership signs audit reports
+          - No single party controls both investigation and attestation
+    
+    key_decisions:
+      - "Used hsed:audit (9) - standard role for compliance"
+      - "No signing ability - findings validated by separate authority"
+      - "No encryption ability - can't hide evidence"
+      - "Complete verification of evidence integrity"
+  
+  # --------------------------------------------------------------------------
+  # Scenario 4: Multi-Tier Web Application
+  # --------------------------------------------------------------------------
+  
+  scenario_4_multi_tier_web_app:
+    
+    overview: |
+      **Requirement**: Three-tier web application (frontend, backend, database) 
+      with different security requirements at each layer.
+    
+    architecture_overview: |
+      ```
+      Internet → Frontend (DMZ) → Backend (Internal) → Database (Storage)
+      ```
+    
+    tier_analysis:
+      
+      tier_1_frontend_dmz:
+        requirements:
+          - "Receive user requests from internet"
+          - "Verify request signatures"
+          - "Encrypt user data immediately"
+          - "Forward to backend"
+          - "Should NOT decrypt past data (breach mitigation)"
+        
+        hsed_role: "hsed:dmz (10 = H+E)"
+        
+        reasoning: |
+          - Hash (H): Verify incoming request signatures
+          - Encrypt (E): Seal user data at boundary
+          - No Decrypt: Can't read historical data (even if compromised)
+          - No Sign: Can't forge attestations
+        
+        implementation: |
+          frontend:
+            permissions: 10  # H+E
+            
+            operations:
+              verify_request:
+                uses: Hash
+                example: "Verify client signature on API request"
+              
+              encrypt_user_data:
+                uses: Encrypt
+                example: "Encrypt form data before forwarding"
+            
+            cannot:
+              - "Decrypt past user data"
+              - "Sign responses"
+      
+      tier_2_backend_internal:
+        requirements:
+          - "Receive encrypted data from frontend"
+          - "Decrypt for processing"
+          - "Encrypt results for storage"
+          - "Should NOT sign (separate concern)"
+        
+        hsed_role: "hsed:vault (3 = E+D)"
+        
+        reasoning: |
+          - Encrypt (E): Seal processed data
+          - Decrypt (D): Access encrypted inputs
+          - No Hash: Doesn't verify signatures (trusts internal network)
+          - No Sign: Doesn't create attestations
+        
+        implementation: |
+          backend:
+            permissions: 3  # E+D
+            
+            operations:
+              decrypt_input:
+                uses: Decrypt
+                example: "Decrypt user data from frontend"
+              
+              process_data:
+                uses: E+D
+                example: "Decrypt, process, re-encrypt"
+              
+              encrypt_output:
+                uses: Encrypt
+                example: "Encrypt before storing in database"
+            
+            cannot:
+              - "Verify signatures"
+              - "Sign data"
+      
+      tier_3_database_storage:
+        requirements:
+          - "Store encrypted data"
+          - "Return encrypted data on request"
+          - "Should NOT decrypt (defense in depth)"
+        
+        hsed_role: "None (0) - Database stores ciphertext only"
+        
+        reasoning: |
+          - No permissions needed
+          - Database is "dumb storage" for encrypted blobs
+          - Encryption/decryption happens in application tier
+          - Even if database compromised, data encrypted
+        
+        implementation: |
+          database:
+            permissions: 0  # No crypto permissions
+            
+            operations:
+              store_encrypted:
+                crypto: None
+                example: "Store ciphertext as binary blob"
+              
+              retrieve_encrypted:
+                crypto: None
+                example: "Return ciphertext to backend"
+            
+            security_properties:
+              - "Data at rest always encrypted"
+              - "No decryption keys in database layer"
+              - "Breach exposes only ciphertext"
+    
+    complete_architecture: |
+      # Multi-tier HSED architecture
+      
+      internet:
+        permissions: 0
+        description: "Untrusted, no crypto access"
+      
+      frontend_dmz:
+        permissions: 10  # H+E (hsed:dmz)
+        description: "Verify + encrypt at boundary"
+        breach_impact: "Can't read past data (no D)"
+      
+      backend_internal:
+        permissions: 3  # E+D (hsed:vault)
+        description: "Process encrypted data"
+        breach_impact: "Can read data, can't forge signatures"
+      
+      database:
+        permissions: 0  # No crypto
+        description: "Store ciphertext only"
+        breach_impact: "Only ciphertext exposed"
+      
+      audit:
+        permissions: 9  # H+D (hsed:audit)
+        description: "Independent compliance verification"
+        breach_impact: "Can read, can't modify"
+    
+    security_analysis: |
+      Defense in depth with different permissions per tier:
+      
+      Tier 1 (Frontend) compromised:
+      - ✗ Can encrypt new data
+      - ✓ Cannot decrypt historical data (no D)
+      - ✓ Cannot forge signatures (no S)
+      - Impact: Limited to new requests
+      
+      Tier 2 (Backend) compromised:
+      - ✗ Can decrypt data
+      - ✗ Can encrypt data
+      - ✓ Cannot verify signatures (no H)
+      - ✓ Cannot sign attestations (no S)
+      - Impact: Data access, but no attestation forgery
+      
+      Tier 3 (Database) compromised:
+      - ✓ Only ciphertext exposed
+      - ✓ No decryption keys
+      - ✓ Need backend compromise to read data
+      - Impact: Minimal (ciphertext only)
+      
+      Multiple compromises needed for complete breach.
+  
+  # --------------------------------------------------------------------------
+  # Key Takeaways
+  # --------------------------------------------------------------------------
+  
+  key_takeaways:
+    
+    critical_concepts:
+      - "CI/CD pipeline: hsed:signer (12 = H+S). Can sign releases, cannot decrypt secrets. Limits blast radius if compromised."
+      - "Secrets manager: hsed:vault (3 = E+D). Can encrypt/decrypt secrets, cannot sign. Separate audit log signing prevents evidence tampering."
+      - "Audit system: hsed:audit (9 = H+D). Can verify and decrypt, cannot sign or encrypt. Read-only investigation maintains separation."
+      - "Multi-tier apps: Different permissions per tier. Frontend (10), Backend (3), Database (0), Audit (9). Defense in depth through permission separation."
+    
+    actionable_steps:
+      - "Map your services to scenarios: Which services match CI/CD, secrets, audit patterns? Apply the same HSED roles."
+      - "Identify your tiers: Draw architecture diagram, assign different HSED permissions to each tier based on function."
+      - "Implement step-by-step: Start with one service (CI/CD), validate security properties, then expand to others."
+    
+    common_pitfalls_summary:
+      - "Don't give CI/CD decrypt access - it doesn't need it, and compromise becomes catastrophic"
+      - "Don't let audit services sign - they should verify, not create attestations (separation of duties)"
+      - "Don't give database crypto permissions - store ciphertext, decrypt in application tier"
+    
+    remember_this:
+      - "CI/CD = signer (12), Secrets = vault (3), Audit = audit (9)"
+      - "Different tiers = different permissions = defense in depth"
+      - "Follow the 5-step process: requirements → operations → permissions → validation → implementation"
+    
+    next_steps:
+      - "Section 1.10 catalogs common mistakes and anti-patterns to avoid"
+      - "Chapter 2 dives deep into each permission bit with cryptographic foundations"
+      - "Chapter 3 covers advanced implementation patterns and cloud provider integration"
+
+---
