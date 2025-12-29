@@ -1,0 +1,724 @@
+# section_1_07_security_principles.yaml
+---
+document_info:
+  chapter: "1"
+  section: "07"
+  title: "Least Privilege and Separation of Duties"
+  version: "1.0.0"
+  author: "Raghav Dinesh"
+  github: "github.com/raghavpoonia"
+  license: "MIT"
+  created: "2025-12-29"
+  estimated_pages: 6
+  tags: ["hsed", "least-privilege", "separation-of-duties", "security-principles", "defense-in-depth"]
+
+# ============================================================================
+# SECTION 1.07: LEAST PRIVILEGE AND SEPARATION OF DUTIES
+# ============================================================================
+
+section_1_07_security_principles:
+  
+  # --------------------------------------------------------------------------
+  # Overview and Context
+  # --------------------------------------------------------------------------
+  
+  overview: |
+    HSED provides the mechanism for controlling cryptographic permissions. But 
+    having a permission model doesn't automatically make systems secure. You 
+    need to apply it correctly, following proven security principles.
+    
+    This section covers two fundamental security principles and how they apply 
+    to HSED:
+    
+    1. **Least Privilege**: Grant only the minimum permissions necessary for 
+       a service to function. If CI/CD only needs to sign, don't give it decrypt.
+    
+    2. **Separation of Duties**: Ensure no single role can complete critical 
+       operations alone. Signing + decrypting in one role creates god-mode 
+       credentials.
+    
+    These principles aren't abstract theory - they're practical guidelines that 
+    prevent real breaches. By the end, you'll know how to design HSED systems 
+    that embody these principles, and how to recognize when they're violated.
+  
+  # --------------------------------------------------------------------------
+  # Core Concepts
+  # --------------------------------------------------------------------------
+  
+  core_concepts:
+    
+    least_privilege_principle:
+      
+      definition: |
+        **Least Privilege**: Every service should have the minimum permissions 
+        necessary to perform its function, and no more.
+        
+        In HSED terms:
+        - If service only verifies signatures → hsed:verifier (8), not hsed:signer (12)
+        - If service only encrypts data → hsed:dmz (10), not hsed:vault (3)
+        - If service signs releases → hsed:signer (12), not hsed:root (15)
+        
+        **Anti-pattern**: Granting hsed:root (15) "just to be safe" or "because 
+        we might need it later."
+      
+      why_it_matters: |
+        Least privilege limits blast radius:
+        
+        **Without least privilege (over-permissioned):**
+        ```yaml
+        ci_cd:
+          permissions: 15  # Root - can do everything
+        ```
+        
+        **If CI/CD compromised:**
+        - ✗ Attacker can sign malicious releases
+        - ✗ Attacker can decrypt production secrets
+        - ✗ Attacker can encrypt and exfiltrate data
+        - ✗ Attacker can verify to evade detection
+        - **Blast radius: Complete system compromise**
+        
+        **With least privilege (right-sized):**
+        ```yaml
+        ci_cd:
+          permissions: 12  # Signer - only sign and verify
+        ```
+        
+        **If CI/CD compromised:**
+        - ✗ Attacker can sign malicious releases (need multi-party signing)
+        - ✓ Attacker CANNOT decrypt secrets (no D permission)
+        - ✓ Attacker CANNOT encrypt data (no E permission)
+        - ✓ Attacker limited to signing operations
+        - **Blast radius: Limited to release integrity, secrets safe**
+        
+        Least privilege turns complete compromise into limited impact.
+      
+      key_components:
+        
+        permission_minimization:
+          what: "Use smallest permission set that enables functionality"
+          method: "Start with 0, add only what's needed"
+          review: "Regularly audit if all granted permissions are used"
+          example: |
+            # Wrong: Start with root and remove
+            permissions: 15  # Root
+            # Remove what we don't need... (never happens)
+            
+            # Right: Start with nothing and add
+            permissions: 0  # Nothing
+            # Need to verify? Add H (+8)
+            # Need to sign? Add S (+4)
+            # Final: 12 (H+S = signer)
+        
+        justification_requirement:
+          what: "Every permission must have documented reason"
+          documentation: "Why this service needs this specific permission"
+          review_trigger: "Permission grant requires justification"
+          example: |
+            ci_cd:
+              permissions: 12  # H+S
+              justification:
+                hash: "Verify artifact integrity before signing"
+                sign: "Sign releases after successful build"
+                # No encrypt: "N/A - CI/CD doesn't handle secrets"
+                # No decrypt: "N/A - CI/CD doesn't access encrypted data"
+        
+        time_limited_elevation:
+          what: "Temporary higher permissions for specific tasks"
+          duration: "Minutes to hours, never permanent"
+          use_case: "Break-glass, incident response, migrations"
+          example: |
+            admin_user:
+              base_permissions: 0  # No permissions normally
+              
+              emergency_elevation:
+                permissions: 15  # Root
+                max_duration: 4h
+                requires_approval: true
+                auto_revoke: true
+                justification_required: true
+        
+        permission_review_cadence:
+          frequency: "Quarterly for all services"
+          process: "Check if granted permissions still needed"
+          action: "Revoke unused permissions"
+          example: |
+            # Q1 Review: CI/CD
+            granted: 12 (H+S)
+            used: 12 (H+S)
+            action: Keep ✓
+            
+            # Q1 Review: Old migration service
+            granted: 14 (H+S+E)
+            used: 0 (service deprecated)
+            action: Revoke → 0
+      
+      how_it_works: |
+        **Least privilege workflow:**
+        
+        1. **Identify requirements**
+           - What does service actually do?
+           - Which crypto operations are needed?
+           - Document specific use cases
+        
+        2. **Map to HSED bits**
+           - Verify signatures? → H
+           - Create signatures? → S
+           - Encrypt data? → E
+           - Decrypt data? → D
+        
+        3. **Compute minimum permissions**
+           - Add only required bits
+           - Verify against standard roles
+           - Document why each bit needed
+        
+        4. **Test with minimal permissions**
+           - Deploy with computed permissions
+           - Verify functionality works
+           - Catch any missing permissions
+        
+        5. **Monitor and review**
+           - Track which permissions actually used
+           - Quarterly review of granted vs used
+           - Revoke unused permissions
+      
+      real_world_example: |
+        **Case study: Secrets management service redesign**
+        
+        **Before (over-permissioned):**
+        ```yaml
+        secrets_service:
+          permissions: 15  # Root
+          rationale: "Handles secrets so needs all permissions"
+        ```
+        
+        **Analysis:**
+        - What does it actually do?
+          - Stores encrypted secrets (needs E)
+          - Retrieves encrypted secrets (needs D)
+          - Does NOT sign anything
+          - Does NOT verify signatures
+        
+        **After (least privilege):**
+        ```yaml
+        secrets_service:
+          permissions: 3  # Vault (E+D)
+          rationale:
+            encrypt: "Encrypt secrets when storing"
+            decrypt: "Decrypt secrets when retrieving"
+            no_hash: "Doesn't verify signatures"
+            no_sign: "Doesn't create attestations"
+        ```
+        
+        **Impact:**
+        - Reduced permissions: 15 → 3 (80% reduction)
+        - If compromised:
+          - Before: Attacker had full crypto authority
+          - After: Attacker limited to secrets this service manages
+        - Functionality: Identical, no impact
+        - Security: Dramatically improved blast radius
+        
+        **Lesson**: Most services need 2-3 permission bits, not all 4.
+      
+      related_concepts:
+        - "Principle of least authority (POLA): More general version"
+        - "Need-to-know basis: Information security equivalent"
+        - "Zero-trust: Never trust, always verify and minimize access"
+    
+    separation_of_duties:
+      
+      definition: |
+        **Separation of Duties (SoD)**: No single role should have permissions 
+        to complete a critical operation alone. Require multiple independent 
+        parties.
+        
+        In HSED terms:
+        - Don't combine Sign + Decrypt (13) → Creates unauditable god-mode
+        - Don't give one service both Encrypt and Sign → Can forge and seal
+        - Do split: Signer (12) creates attestations, Auditor (9) verifies them
+        
+        **Critical principle**: Attackers compromising one service shouldn't 
+        gain complete control.
+      
+      why_it_matters: |
+        Separation of duties prevents single points of failure:
+        
+        **Without separation (god-mode credential):**
+        ```yaml
+        payment_processor:
+          permissions: 13  # H+S+D - Dangerous!
+        ```
+        
+        **If compromised:**
+        - ✗ Can decrypt payment data (D)
+        - ✗ Can sign fraudulent transactions (S)
+        - ✗ Can verify to evade detection (H)
+        - ✗ No independent party can catch fraud
+        - **Result: Complete payment fraud capability**
+        
+        **With separation (split duties):**
+        ```yaml
+        payment_decryptor:
+          permissions: 9  # H+D - Audit role
+          
+        transaction_signer:
+          permissions: 12  # H+S - Signer role
+        ```
+        
+        **If either compromised:**
+        - Decryptor compromised: Can read payments, can't forge transactions
+        - Signer compromised: Can sign transactions, can't read payment data
+        - **Attacker needs BOTH services to commit fraud**
+        
+        Separation transforms single-point vulnerability into multi-party attack.
+      
+      key_components:
+        
+        incompatible_permissions:
+          what: "Permission combinations that violate SoD"
+          dangerous_combinations:
+            - "13 (H+S+D): Sign + Decrypt = Can forge and access secrets"
+            - "7 (S+E+D): All operations without verification"
+            - "15 (H+S+E+D): God mode, breaks all separation"
+          exceptions: "Only with explicit security team approval and justification"
+          example: |
+            # Dangerous: One service both signs and decrypts
+            service:
+              permissions: 13  # H+S+D
+              # ✗ Can sign transactions AND decrypt payment data
+              # ✗ Violates separation of duties
+            
+            # Safe: Split into two services
+            signer:
+              permissions: 12  # H+S
+              # ✓ Can sign transactions
+              # ✓ Cannot decrypt payment data
+            
+            reader:
+              permissions: 9  # H+D
+              # ✓ Can decrypt payment data
+              # ✓ Cannot sign transactions
+        
+        dual_control:
+          what: "Require two independent parties for critical operations"
+          implementation: "Multi-party signing, approval workflows"
+          use_case: "Financial transactions, production deployments, key ceremonies"
+          example: |
+            # Financial transaction requires two signatures
+            initiator:
+              permissions: 10  # H+E (can seal transaction)
+              
+            approver:
+              permissions: 12  # H+S (can sign approval)
+              
+            executor:
+              permissions: 9  # H+D (can decrypt and execute)
+            
+            # No single role can complete transaction alone
+        
+        maker_checker_pattern:
+          what: "One party creates, different party approves"
+          roles: "Maker (creates), Checker (verifies), Executor (performs)"
+          enforcement: "Cryptographic - signatures from both required"
+          example: |
+            # Code release process
+            developer:
+              permissions: 10  # H+E (can seal code)
+              action: "Packages release, encrypts for security"
+            
+            reviewer:
+              permissions: 12  # H+S (can sign approval)
+              action: "Reviews code, signs approval"
+            
+            ci_cd:
+              permissions: 9  # H+D (can verify and deploy)
+              action: "Verifies both signatures, decrypts, deploys"
+            
+            # Developer alone: Can't deploy (no sign or decrypt)
+            # Reviewer alone: Can't deploy (no encrypt or decrypt)
+            # CI/CD alone: Can't deploy without approvals
+        
+        privilege_escalation_prevention:
+          what: "Prevent accumulation of incompatible permissions"
+          enforcement: "Policy validation rejects SoD violations"
+          monitoring: "Alert on users with multiple incompatible roles"
+          example: |
+            # Detect privilege escalation
+            user_roles = get_all_roles(user_id)
+            combined_permissions = 0
+            
+            for role in user_roles:
+                combined_permissions |= role.permissions
+            
+            if combined_permissions in [7, 13, 15]:
+                alert_security_team(
+                    f"User {user_id} has incompatible role combination: "
+                    f"{combined_permissions}"
+                )
+                # Block or require security review
+      
+      how_it_works: |
+        **Separation of duties workflow:**
+        
+        **Example: Production deployment**
+        
+        1. **Developer (hsed:dmz = 10: H+E)**
+           - Packages application code
+           - Encrypts deployment package
+           - **Cannot**: Sign deployment, decrypt secrets
+        
+        2. **Security Reviewer (hsed:signer = 12: H+S)**
+           - Verifies code integrity
+           - Signs security approval
+           - **Cannot**: Decrypt package, access secrets
+        
+        3. **Release Manager (hsed:signer = 12: H+S)**
+           - Reviews business approval
+           - Signs release approval
+           - **Cannot**: Decrypt package, access secrets
+        
+        4. **CI/CD (hsed:audit = 9: H+D)**
+           - Verifies both signatures present
+           - Decrypts deployment package
+           - Deploys to production
+           - **Cannot**: Sign approvals, forge attestations
+        
+        5. **Secrets Service (hsed:vault = 3: E+D)**
+           - Provides runtime secrets
+           - **Cannot**: Sign anything, verify anything
+        
+        **Required compromises for attack:**
+        - All three signing services (developer, sec reviewer, release manager)
+        - OR CI/CD + one signing service
+        - Single compromise insufficient
+      
+      real_world_example: |
+        **Case study: Financial payment processing**
+        
+        **Requirement:** Process high-value wire transfers ($1M+)
+        
+        **Without SoD (dangerous):**
+        ```yaml
+        payment_processor:
+          permissions: 15  # Root - can do everything
+        ```
+        
+        **Attack scenario:**
+        - Attacker compromises payment_processor
+        - Can decrypt customer bank details (D)
+        - Can sign fraudulent transfer orders (S)
+        - Can encrypt fake records (E)
+        - Can verify to evade detection (H)
+        - **Single compromise = complete fraud capability**
+        
+        **With SoD (secure):**
+        ```yaml
+        payment_ingestion:
+          permissions: 10  # H+E
+          action: "Verify incoming transfers, encrypt for processing"
+        
+        fraud_detection:
+          permissions: 9  # H+D
+          action: "Decrypt transfers, verify legitimacy, flag suspicious"
+        
+        transfer_authorization:
+          permissions: 12  # H+S
+          action: "Sign authorized transfers"
+        
+        execution_service:
+          permissions: 9  # H+D
+          action: "Verify authorization signature, decrypt, execute transfer"
+        ```
+        
+        **Attack scenarios:**
+        
+        1. **Ingestion compromised:**
+           - Can encrypt fake transfers
+           - Cannot sign authorization (no S)
+           - Fraud detection will catch (suspicious patterns)
+        
+        2. **Fraud detection compromised:**
+           - Can read transfer data
+           - Cannot forge authorizations (no S)
+           - Cannot modify encrypted queue (no E)
+        
+        3. **Authorization compromised:**
+           - Can sign transfer orders
+           - Cannot decrypt account details (no D)
+           - Cannot see what they're signing
+        
+        4. **Execution compromised:**
+           - Can decrypt and execute
+           - Cannot forge authorization signatures (no S)
+           - Won't execute without valid signature
+        
+        **Required for successful fraud:**
+        - Compromise authorization (to sign)
+        - AND compromise fraud detection or execution (to decrypt)
+        - AND evade monitoring (much harder with multiple services)
+        
+        **Defense multiplier:** 4 services × independent compromise = 
+        exponentially harder attack.
+      
+      related_concepts:
+        - "Defense in depth: Multiple independent security layers"
+        - "Multi-party computation: Cryptographic separation of duties"
+        - "Dual control: Two-person rule for critical operations"
+    
+    trust_boundaries:
+      
+      definition: |
+        **Trust Boundary**: A point where data or control crosses from one 
+        security domain to another. Different sides of boundary have different 
+        permissions.
+        
+        In HSED:
+        - Internet → DMZ: Data encrypted at boundary (DMZ has H+E)
+        - DMZ → Internal: Data decrypted internally (Internal has H+D or E+D)
+        - Dev → Prod: Signatures required at boundary (Prod verifies, Dev signs)
+      
+      why_it_matters: |
+        Trust boundaries enforce permission transitions:
+        
+        **Without boundaries (flat network):**
+        - All services have similar permissions
+        - Compromise anywhere = compromise everywhere
+        - No defense in depth
+        
+        **With boundaries (defense in depth):**
+        - Each boundary enforces different permissions
+        - Compromise in one zone ≠ compromise of others
+        - Attacker must breach multiple boundaries
+      
+      key_components:
+        
+        boundary_identification:
+          common_boundaries:
+            - "External → DMZ → Internal"
+            - "Development → Staging → Production"
+            - "User space → Kernel space → Hardware"
+            - "Public → Private cloud"
+          example: |
+            # Network boundaries
+            external:
+              permissions: 0  # No crypto access
+            
+            dmz:
+              permissions: 10  # H+E (encrypt incoming)
+            
+            application:
+              permissions: 3  # E+D (process data)
+            
+            audit:
+              permissions: 9  # H+D (compliance)
+        
+        permission_transitions:
+          what: "Change permissions at boundary crossings"
+          enforcement: "Different services on each side"
+          validation: "Cryptographic proofs (signatures) at boundaries"
+          example: |
+            # Data flow with permission transitions
+            
+            1. External → DMZ
+               - DMZ verifies client signature (H)
+               - DMZ encrypts data (E)
+               - DMZ cannot decrypt (no D)
+            
+            2. DMZ → Internal
+               - Internal decrypts data (D)
+               - Internal processes data (E+D)
+               - Internal cannot sign (no S)
+            
+            3. Internal → Audit
+               - Audit verifies processing (H)
+               - Audit decrypts for review (D)
+               - Audit cannot modify (no S or E)
+        
+        boundary_enforcement:
+          what: "Cryptographic enforcement of trust boundaries"
+          methods:
+            - "Different keys for different zones"
+            - "Signatures required to cross boundaries"
+            - "Network segmentation + crypto"
+          example: |
+            # Boundary enforcement example
+            
+            # DMZ cannot use internal keys
+            dmz:
+              permissions: 10
+              allowed_keys: ["dmz-encryption-key"]
+              # Denied: "internal-secrets-key"
+            
+            # Internal cannot use DMZ keys
+            internal:
+              permissions: 3
+              allowed_keys: ["internal-secrets-key"]
+              # Denied: "dmz-encryption-key"
+            
+            # Boundaries enforced by key access control
+      
+      how_it_works: |
+        **Multi-zone architecture with trust boundaries:**
+        
+        ```
+        ┌─────────────────────────────────────────────────┐
+        │ Internet (Untrusted)                            │
+        │ No crypto permissions                           │
+        └─────────────────┬───────────────────────────────┘
+                          │
+                          │ Boundary 1: Authentication
+                          │ Verify client signatures
+                          ▼
+        ┌─────────────────────────────────────────────────┐
+        │ DMZ (Perimeter)                                 │
+        │ Permissions: 10 (H+E)                           │
+        │ - Verify incoming requests (H)                  │
+        │ - Encrypt for internal processing (E)           │
+        │ - Cannot decrypt past data (no D)               │
+        └─────────────────┬───────────────────────────────┘
+                          │
+                          │ Boundary 2: Internal Gateway
+                          │ Data encrypted by DMZ
+                          ▼
+        ┌─────────────────────────────────────────────────┐
+        │ Internal (Trusted)                              │
+        │ Permissions: 3 (E+D)                            │
+        │ - Decrypt DMZ-encrypted data (D)                │
+        │ - Encrypt for storage (E)                       │
+        │ - Cannot sign attestations (no S)               │
+        └─────────────────┬───────────────────────────────┘
+                          │
+                          │ Boundary 3: Audit Interface
+                          │ Signed audit logs required
+                          ▼
+        ┌─────────────────────────────────────────────────┐
+        │ Audit (Compliance)                              │
+        │ Permissions: 9 (H+D)                            │
+        │ - Verify all signatures (H)                     │
+        │ - Decrypt for investigation (D)                 │
+        │ - Cannot sign or encrypt (no S or E)            │
+        └─────────────────────────────────────────────────┘
+        ```
+        
+        **Breach containment:**
+        - DMZ breach: Can encrypt new data, can't read historical data
+        - Internal breach: Can process data, can't forge signatures
+        - Audit breach: Can read data, can't modify or hide evidence
+        
+        Each zone has minimum permissions for its function.
+      
+      real_world_example: |
+        **Healthcare HIPAA compliance architecture:**
+        
+        **Requirement:** Process patient records with HIPAA compliance
+        
+        **Trust zones:**
+        
+        1. **Public API (DMZ)**
+           ```yaml
+           public_api:
+             permissions: 10  # H+E
+             function: "Receive patient data from hospitals"
+             can_do:
+               - "Verify hospital signatures"
+               - "Encrypt patient records immediately"
+             cannot_do:
+               - "Decrypt past patient records"
+               - "Sign anything"
+           ```
+           
+           **HIPAA benefit:** Breach exposes no historical data
+        
+        2. **Processing (Internal)**
+           ```yaml
+           processing:
+             permissions: 3  # E+D
+             function: "Process and store patient records"
+             can_do:
+               - "Decrypt records for processing"
+               - "Encrypt for storage"
+             cannot_do:
+               - "Verify or sign"
+           ```
+           
+           **HIPAA benefit:** Can't forge audit logs
+        
+        3. **Analytics (Internal)**
+           ```yaml
+           analytics:
+             permissions: 9  # H+D
+             function: "Medical research, anonymization"
+             can_do:
+               - "Decrypt for analysis"
+               - "Verify data integrity"
+             cannot_do:
+               - "Sign or encrypt"
+           ```
+           
+           **HIPAA benefit:** Read-only, can't modify records
+        
+        4. **Compliance (Audit)**
+           ```yaml
+           compliance:
+             permissions: 9  # H+D
+             function: "HIPAA audit trail verification"
+             can_do:
+               - "Verify all access logs"
+               - "Decrypt for investigation"
+             cannot_do:
+               - "Modify any records"
+           ```
+           
+           **HIPAA benefit:** Independent verification, no modification
+        
+        **Compliance properties:**
+        - ✓ Minimum necessary access (HIPAA requirement)
+        - ✓ Separation of duties (SOC2 requirement)
+        - ✓ Audit trails (mandatory for HIPAA)
+        - ✓ Breach containment (PHI protection)
+        
+        **Breach scenarios:**
+        - Public API breach: No PHI accessed (can't decrypt)
+        - Processing breach: PHI accessed but can't forge audit
+        - Analytics breach: PHI accessed but read-only
+        - Compliance breach: Can audit but can't modify
+        
+        Multiple boundaries make complete breach exponentially harder.
+      
+      related_concepts:
+        - "Defense in depth: Layered security controls"
+        - "Network segmentation: Physical/logical boundary enforcement"
+        - "Zero-trust architecture: Never trust, always verify at boundaries"
+  
+  # --------------------------------------------------------------------------
+  # Key Takeaways
+  # --------------------------------------------------------------------------
+  
+  key_takeaways:
+    
+    critical_concepts:
+      - "Least privilege: Start with 0, add only required permissions. Most services need 2-3 bits (12, 3, 9, 10), not all 4 (15)."
+      - "Separation of duties: Split incompatible operations across services. Never combine Sign + Decrypt (13) unless justified and approved."
+      - "Trust boundaries: Different permissions on each side. DMZ encrypts (10), Internal processes (3), Audit verifies (9)."
+      - "Defense in depth: Multiple independent security layers. Compromising one service ≠ compromising system."
+    
+    actionable_steps:
+      - "Audit all services with permissions ≥13: These likely violate separation of duties. Split into multiple services with focused permissions."
+      - "Map trust boundaries in your architecture: Draw zones, assign different HSED permissions to each zone. No zone should have root (15) except break-glass."
+      - "Implement quarterly permission reviews: Check granted vs actually used permissions. Revoke unused permissions aggressively."
+    
+    common_pitfalls_summary:
+      - "Don't grant root (15) for convenience - it defeats the entire permission model"
+      - "Don't combine incompatible operations in one service - split duties across services"
+      - "Don't skip permission reviews - unused permissions accumulate into security debt"
+    
+    remember_this:
+      - "Least privilege: Grant minimum, justify everything, review quarterly"
+      - "Separation of duties: No single service completes critical operations alone"
+      - "Trust boundaries: Different permissions on each side = defense in depth"
+    
+    next_steps:
+      - "Section 1.08 covers role hierarchies: How permissions inherit and compose in organizations"
+      - "Section 1.09 applies these principles to real scenarios with step-by-step examples"
+      - "Section 1.10 catalogs common mistakes and anti-patterns to avoid"
+
+---
