@@ -1,3 +1,5 @@
+[![CI](https://github.com/ruwgxo/hsed/actions/workflows/ci.yml/badge.svg)](https://github.com/ruwgxo/hsed/actions/workflows/ci.yml)
+
 # hsed - Hash | Sign | Encrypt | Decrypt
 
 A Unix `chmod`-inspired permission model for cryptographic operations. If
