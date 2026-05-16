@@ -250,7 +250,7 @@ hsed/
 │   └── cli/
 │       └── main.py            # CLI entry point
 ├── tests/
-│   └── test_hsed.py           # 88 tests, zero deps beyond pytest
+│   └── test_hsed.py           # zero deps beyond pytest
 └── examples/
     ├── cicd-pipeline/
     ├── secrets-manager/
