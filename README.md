@@ -1,403 +1,274 @@
-# HSED: Unix Permissions for Cryptography
+# hsed - Hash | Sign | Encrypt | Decrypt
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+A Unix `chmod`-inspired permission model for cryptographic operations. If
+`chmod` taught `rwx`, `hsed` teaches who can touch cryptographic operations
+and how.
 
-> If `chmod` taught us `rwx`, what's the permission model for cryptography?
+```
+hsed 15 → HSED → full authority (root)
+hsed 12 → HS-- → sign only (CI/CD)
+hsed  3 → --ED → vault (secrets manager)
+hsed  9 → H--D → audit (forensics)
+```
 
-**HSED: Hash | Sign | Encrypt | Decrypt**
+> since 2012
 
 ---
 
-## The Problem
+## The Model
 
-You need to grant your CI/CD pipeline access to sign container images, but your cloud provider's IAM policy looks like this:
-```json
-{
-  "Effect": "Allow",
-  "Action": [
-    "kms:Decrypt",
-    "kms:Encrypt", 
-    "kms:Sign",
-    "kms:Verify",
-    "kms:GenerateDataKey",
-    "kms:CreateKey",
-    "kms:DescribeKey"
-  ],
-  "Resource": "*"
-}
-```
+Four permission bits on a 4-bit mask:
 
-**Translation:** "We gave up and granted everything."
+| Bit | Value | Operation                                        |
+|-----|-------|--------------------------------------------------|
+| H   | 8     | Hash / Verify - compute hashes, verify signatures |
+| S   | 4     | Sign - create digital signatures, attestations    |
+| E   | 2     | Encrypt - seal data, create ciphertext            |
+| D   | 1     | Decrypt - unseal data, read plaintext             |
 
-Sound familiar?
+Combine them like octal: `hsed 12` = `H(8) + S(4)` = hash and sign only.
 
----
+### Built-in Roles
 
-## The Solution
-```bash
-# Your CI/CD pipeline should only sign
-hsed:signer = 12   # H+S (Hash + Sign only)
-
-# Your secrets manager should only encrypt/decrypt
-hsed:vault = 3     # E+D (Encrypt + Decrypt only)
-
-# Your audit team should verify and read
-hsed:audit = 9     # H+D (Hash + Decrypt only)
-```
-
-Just like `chmod 755`, but for cryptographic operations.
+| Role        | Value | Label | Description                          |
+|-------------|-------|-------|--------------------------------------|
+| `root`      | 15    | HSED  | Full authority                       |
+| `admin`     | 14    | HSE-  | H+S+E, no decrypt                    |
+| `signer`    | 12    | HS--  | CI/CD pipelines, code signing        |
+| `vault`     | 3     | --ED  | Secrets management                   |
+| `audit`     | 9     | H--D  | Compliance, forensics, read-only     |
+| `encryptor` | 10    | H-E-  | Data ingestion, DMZ encryptors       |
+| `verifier`  | 8     | H---  | Signature verification only          |
+| `none`      | 0     | ----  | No permissions - deny all            |
 
 ---
 
-## Quick Start
+## Install
 
-### Installation
 ```bash
-pip install hsed
+pip install hsed                    # core (zero deps)
+pip install hsed[aws]               # + boto3
+pip install hsed[vault]             # + hvac
+pip install "hsed[aws,vault]"       # multiple integrations
 ```
 
-### CLI Usage
-```bash
-# Initialize HSED policy
-hsed init
+---
 
-# Create a signer role (CI/CD)
-hsed role create signer --permissions 12
+## Python API
 
-# Generate AWS KMS policy
-hsed generate aws-kms --role signer --key-arn arn:aws:kms:...
+### Basic usage
 
-# Validate existing policies
-hsed validate policy.hsed
-
-# Audit your AWS KMS permissions
-hsed audit aws-kms --profile production
-```
-
-### Python API
 ```python
-from hsed import Policy, Role, Permissions
+from hsed import Policy, Role, Bit, enforce
 
-# Define roles
-policy = Policy()
-policy.add_role(Role('signer', permissions=12))  # H+S
-policy.add_role(Role('vault', permissions=3))    # E+D
-policy.add_role(Role('audit', permissions=9))    # H+D
+policy = Policy('ci-prod')
+policy.add_role(Role('signer', permissions=12))   # H+S
 
-# Enforce at runtime
-@policy.enforce(role='signer')
+# Decorator bound to the policy - fails at decoration time (eager=True)
+@policy.enforce_op(role='signer', requires=Bit.SIGN)
 def sign_artifact(data: bytes) -> bytes:
-    return sign_data(data)  # ✓ Allowed
-    
-@policy.enforce(role='signer') 
-def decrypt_secret(ciphertext: bytes) -> bytes:
-    return decrypt_data(ciphertext)  # ✗ PermissionError!
+    return sign_data(data)          # ✓ allowed
 
-# Generate cloud provider policies
-aws_policy = policy.to_aws_kms(role='signer', key_arn='...')
-vault_policy = policy.to_vault(role='signer', path='signing/*')
+@policy.enforce_op(role='signer', requires=Bit.DECRYPT)
+def decrypt_secret(ct: bytes) -> bytes:
+    return decrypt_data(ct)         # ✗ raises HSEDPermissionError immediately
 ```
 
----
+### Standalone decorator
 
-## The HSED Permission Model
-
-### Permission Bits
-```
-H | S | E | D
-8   4   2   1
-```
-
-- **H (8)** - Hash/Verify: Compute hashes, verify signatures
-- **S (4)** - Sign: Create digital signatures, attestations
-- **E (2)** - Encrypt: Seal data, create ciphertext
-- **D (1)** - Decrypt: Unseal data, read plaintext
-
-### Octal Notation (like chmod)
-```bash
-hsed 15  # 1111 = H+S+E+D = Full crypto authority (root)
-hsed 12  # 1100 = H+S     = Sign only (CI/CD, code signing)
-hsed 3   # 0011 = E+D     = Encrypt/Decrypt (vault, secrets)
-hsed 9   # 1001 = H+D     = Verify + Read (audit, forensics)
-hsed 10  # 1010 = H+E     = Hash + Encrypt (DMZ, ingress)
-```
-
-### Standard Roles
-
-| Role | Permissions | Use Case |
-|------|-------------|----------|
-| `hsed:root` | 15 (H+S+E+D) | Full authority (break glass) |
-| `hsed:admin` | 14 (H+S+E) | Admin without decrypt |
-| `hsed:signer` | 12 (H+S) | CI/CD, code signing, attestation |
-| `hsed:vault` | 3 (E+D) | Secrets management |
-| `hsed:audit` | 9 (H+D) | Compliance, forensics |
-| `hsed:encryptor` | 10 (H+E) | Data ingestion, sealing |
-| `hsed:verifier` | 8 (H) | Signature verification only |
-
----
-
-## Why HSED?
-
-### 1. **Least Privilege by Design**
 ```python
-# Without HSED: Overly permissive
-"Action": ["kms:*"]  # 😱
+from hsed import Role, Bit, enforce
 
-# With HSED: Precise permissions
-role = Role('signer', permissions=12)  # Only H+S ✓
+signer = Role('signer', permissions=12)
+
+@enforce(role=signer, requires=Bit.SIGN)
+def sign(data: bytes) -> bytes:
+    ...
 ```
 
-### 2. **Separation of Duties**
-```
-Financial Transaction Flow:
-┌─────────────────────────────────────┐
-│ Initiator:  hsed 10 (H+E)          │  ← Can hash and seal request
-│ Approver:   hsed 13 (H+S+D)        │  ← Can verify, sign, decrypt
-│ Executor:   hsed 9  (H+D)          │  ← Can verify signature, decrypt
-└─────────────────────────────────────┘
+### Built-in roles
 
-No single role can complete the transaction alone.
-```
-
-### 3. **Universal Application**
-
-Works across:
-- ✅ AWS KMS
-- ✅ HashiCorp Vault
-- ✅ Azure Key Vault
-- ✅ GCP Cloud KMS
-- ✅ Hardware Security Modules (HSMs)
-- ✅ Custom key management systems
-
-### 4. **Audit-Friendly**
-```bash
-# Find all god-mode access
-grep "hsed:15" audit-trail.log
-
-# Find all roles that can decrypt
-hsed audit list --can-decrypt
-
-# Compliance report
-hsed report --soc2 --output compliance.pdf
-```
-
-### 5. **Memorable & Teachable**
-
-If your team knows `chmod 755`, they'll understand `hsed 12`.
-
----
-
-## Real-World Examples
-
-### CI/CD Code Signing
-```yaml
-# GitHub Actions workflow
-- name: Sign container image
-  env:
-    HSED_ROLE: signer  # permissions=12 (H+S)
-  run: |
-    hsed sign --key signing-key \
-      --input image.tar \
-      --output image.tar.sig
-```
-
-**Permissions enforced:**
-- ✅ Can hash the image
-- ✅ Can sign the hash
-- ❌ Cannot decrypt production secrets
-- ❌ Cannot encrypt (prevents data exfiltration)
-
-### Secrets Management
 ```python
-from hsed import enforce
+from hsed import Policy, builtin_role
 
-@enforce(role='vault')  # permissions=3 (E+D)
-def store_secret(name: str, value: str):
-    encrypted = encrypt(value)
-    save_to_store(name, encrypted)
-
-@enforce(role='vault')
-def retrieve_secret(name: str) -> str:
-    encrypted = load_from_store(name)
-    return decrypt(encrypted)
+p = Policy('production')
+p.add_builtin('signer')     # adds Role('signer', permissions=12)
+p.add_builtin('vault')      # adds Role('vault', permissions=3)
 ```
 
-**Permissions enforced:**
-- ✅ Can encrypt secrets
-- ✅ Can decrypt secrets
-- ❌ Cannot sign (prevents forging attestations)
-- ❌ Cannot hash (focused role)
+### Policy serialisation
 
-### Audit & Forensics
+```python
+p = Policy('production', description='Prod crypto policy')
+p.add_builtin('signer')
+p.add_builtin('audit')
+
+p.save('production.hsed')           # writes JSON
+p2 = Policy.load('production.hsed') # roundtrip
+```
+
+### Permission helpers
+
+```python
+from hsed import permission_string, parse_permission_string, combine, intersect
+
+permission_string(12)           # 'HS--'
+parse_permission_string('H-E-') # 10
+combine(8, 4)                   # 12  (union)
+intersect(15, 12)               # 12  (intersection)
+```
+
+### Temporary scope (tests / auditing)
+
+```python
+from hsed import Role, Bit, PermissionScope
+
+r = Role('signer', permissions=12)
+with PermissionScope(r, add=Bit.DECRYPT):
+    r.can(Bit.DECRYPT)   # True - temporarily elevated
+r.can(Bit.DECRYPT)       # False - restored
+```
+
+---
+
+## CLI
+
 ```bash
-# Auditor role: hsed:audit (permissions=9, H+D)
-hsed audit verify-logs \
-  --role audit \
-  --logs /var/log/audit/* \
-  --key-id audit-key
+# List all built-in roles
+hsed role list
+
+# Inspect a role
+hsed role show signer
+
+# Create a policy file
+hsed policy init --name ci-prod --roles signer audit --output ci-prod.hsed
+
+# Show a policy
+hsed policy show ci-prod.hsed
+
+# Validate a policy for anomalies
+hsed policy validate ci-prod.hsed
+
+# Generate AWS KMS IAM policy (stdout)
+hsed generate aws-kms \
+  --policy ci-prod.hsed \
+  --role signer \
+  --key-arn arn:aws:kms:us-east-1:123456789012:key/mrk-abc123
+
+# Generate and save to file
+hsed generate aws-kms \
+  --policy ci-prod.hsed \
+  --role signer \
+  --key-arn arn:aws:kms:us-east-1:123456789012:key/mrk-abc123 \
+  --output signer-kms-policy.json
+
+# Generate HashiCorp Vault HCL policy
+hsed generate vault \
+  --policy ci-prod.hsed \
+  --role signer \
+  --mount transit \
+  --key ci-signing-key
+
+# Audit a policy file
+hsed audit ci-prod.hsed
 ```
 
-**Permissions enforced:**
-- ✅ Can verify log signatures
-- ✅ Can decrypt evidence for investigation
-- ❌ Cannot sign (prevents evidence tampering)
-- ❌ Cannot encrypt (prevents hiding data)
+---
+
+## AWS KMS Integration
+
+```python
+from hsed import Policy, Role
+from hsed.integrations.aws_kms import AWSKMSGenerator
+
+policy = Policy('ci')
+policy.add_role(Role('signer', permissions=12))
+
+gen = AWSKMSGenerator(policy)
+
+# Single role → IAM policy document
+doc = gen.generate(
+    role='signer',
+    key_arn='arn:aws:kms:us-east-1:123456789012:key/mrk-abc',
+    principal='arn:aws:iam::123456789012:role/ci-runner',
+)
+print(doc.to_json())
+
+# KMS key resource policy (with root access)
+kp = gen.key_policy(
+    role='signer',
+    key_arn='arn:aws:kms:us-east-1:123456789012:key/mrk-abc',
+    account_id='123456789012',
+    principal_arns=['arn:aws:iam::123456789012:role/ci-runner'],
+)
+```
+
+HSED → KMS action mapping:
+
+| Bit | KMS Actions |
+|-----|-------------|
+| H   | `kms:Verify`, `kms:GetPublicKey`, `kms:DescribeKey` |
+| S   | `kms:Sign`, `kms:GetPublicKey`, `kms:DescribeKey` |
+| E   | `kms:Encrypt`, `kms:GenerateDataKey`, `kms:GenerateDataKeyWithoutPlaintext`, `kms:DescribeKey` |
+| D   | `kms:Decrypt`, `kms:GenerateDataKey`, `kms:DescribeKey` |
+
+Destructive operations (`kms:DeleteAlias`, `kms:ScheduleKeyDeletion`, etc.) are
+always denied via an explicit Deny statement.
 
 ---
 
-## Documentation
+## HashiCorp Vault Integration
 
-### 📚 [Complete Book](chapters/README.md)
+```python
+from hsed import Policy, Role
+from hsed.integrations.vault import VaultGenerator
 
-Comprehensive guide covering:
-- Chapter 1: Introduction & Fundamentals
-- Chapter 2: Core Concepts
-- Chapter 3: Implementation Patterns
-- Chapter 4: Cloud Provider Integration
-- Chapter 5: Security & Compliance
-- Chapter 6: Advanced Topics
-- Chapter 7: Real-World Case Studies
+policy = Policy('ci')
+policy.add_role(Role('signer', permissions=12))
 
-### 📖 [Specification](SPECIFICATION.md)
-
-RFC-style specification of the HSED permission model.
-
-### 🚀 [Quick Start Guides](docs/guides/)
-
-- [AWS KMS Integration](docs/guides/aws-kms.md)
-- [HashiCorp Vault Setup](docs/guides/vault.md)
-- [Azure Key Vault Configuration](docs/guides/azure-keyvault.md)
-- [GCP Cloud KMS Setup](docs/guides/gcp-kms.md)
-
-### 🛠️ [Examples](examples/)
-
-Ready-to-use implementations:
-- [CI/CD Pipeline Security](examples/cicd-pipeline/)
-- [Secrets Management](examples/secrets-manager/)
-- [Audit Trail Design](examples/audit-trail/)
-- [Zero-Trust Architecture](examples/zero-trust/)
+gen = VaultGenerator(policy)
+doc = gen.generate(role='signer', mount='transit', key_name='ci-signing-key')
+print(doc.to_hcl())
+```
 
 ---
 
-## Project Structure
+## Repo Layout
+
 ```
 hsed/
-├── chapters/              # Complete book (YAML format)
-│   ├── hsed_book_index.yaml
-│   ├── chapter_1_index.yaml
-│   ├── section_1_01_introduction.yaml
-│   └── ...
-│
-├── hsed/                  # Python package
-│   ├── core/             # Core permission engine
-│   ├── enforcement/      # Runtime enforcement
-│   ├── integrations/     # Cloud provider integrations
-│   ├── cli/              # Command-line interface
-│   └── utils/            # Utilities
-│
-├── examples/             # Real-world usage patterns
-│   ├── cicd-pipeline/
-│   ├── secrets-manager/
-│   ├── audit-trail/
-│   └── zero-trust/
-│
-├── templates/            # Ready-to-use templates
-│   ├── aws-kms/
-│   ├── hashicorp-vault/
-│   └── kubernetes/
-│
-├── tests/                # Test suite
-├── docs/                 # Generated documentation
-└── bin/                  # CLI executable
+├── hsed/
+│   ├── core/
+│   │   ├── permissions.py     # Bit model, Role, helpers
+│   │   ├── policy.py          # Policy - role registry + serialisation
+│   │   └── enforcement.py     # @enforce, PolicyEnforcer, PermissionScope
+│   ├── integrations/
+│   │   ├── aws_kms.py         # AWS KMS IAM policy generation
+│   │   └── vault.py           # HashiCorp Vault HCL generation
+│   └── cli/
+│       └── main.py            # CLI entry point
+├── tests/
+│   └── test_hsed.py           # 88 tests, zero deps beyond pytest
+└── examples/
+    ├── cicd-pipeline/
+    ├── secrets-manager/
+    ├── audit-trail/
+    └── zero-trust/
 ```
 
 ---
 
-## Contributing
+## Development
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-**Areas we'd love help with:**
-- Additional cloud provider integrations (IBM Cloud, Oracle Cloud)
-- Language bindings (Go, Rust, Java)
-- Terraform/CloudFormation modules
-- Real-world case studies
-- Documentation improvements
-
----
-
-## Why "HSED"?
-
-**H**ash | **S**ign | **E**ncrypt | **D**ecrypt
-
-Four fundamental cryptographic operations. Four permission bits. Simple. Universal. Memorable.
-
-Just like `chmod` taught us `rwx`, HSED teaches us who touches our crypto, and how.
+```bash
+git clone https://github.com/ruwgxo/hsed
+cd hsed
+pip install -e ".[dev]"
+pytest tests/ -v
+```
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-## Citation
-
-If you use HSED in your research or production systems, please cite:
-```bibtex
-@software{hsed2024,
-  title = {HSED: Unix Permissions for Cryptographic Operations},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/hsed}
-}
-```
-
----
-
-## Acknowledgments
-
-Inspired by:
-- Unix file permissions (`chmod`)
-- Principle of least privilege
-- Real-world pain of managing KMS/HSM permissions
-- Need for simple, universal security abstractions
-
----
-
-## Status
-
-🚧 **Early Development** - API may change
-
-- [x] Core permission model
-- [x] Python implementation
-- [x] CLI tool
-- [ ] AWS KMS integration
-- [ ] HashiCorp Vault integration
-- [ ] Azure Key Vault integration
-- [ ] GCP Cloud KMS integration
-- [ ] Complete documentation
-- [ ] Production-ready (v1.0.0)
-
-**Star ⭐ this repo to follow progress!**
-
----
-
-## Contact
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/hsed/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/hsed/discussions)
-- **Security**: See [SECURITY.md](SECURITY.md) for responsible disclosure
-
----
-
-<div align="center">
-
-**If `chmod` taught you `rwx`, let HSED teach you crypto permissions.**
-
-Made with ❤️ for security engineers who believe in least privilege.
-
-</div>
+MIT
