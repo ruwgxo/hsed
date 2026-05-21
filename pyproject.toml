@@ -18,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-dependencies = []   # core has zero deps
+dependencies = []   # core has zero external deps — stdlib only
 
 [project.optional-dependencies]
 aws   = ["boto3>=1.34"]
@@ -58,6 +58,39 @@ python_version      = "3.10"
 strict              = true
 ignore_missing_imports = true
 
+# ── Build ──────────────────────────────────────────────────────────────────
+# Tells hatchling exactly which package to include in the wheel.
+# Without this, `pip install hsed` from PyPI may miss the package directory.
+
 [tool.hatch.build.targets.wheel]
 packages = ["hsed"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "hsed/",
+    "tests/",
+    "templates/",
+    "examples/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "pyproject.toml",
+    "SPECIFICATION.md",
+]
+
+# ── PyPI publish ───────────────────────────────────────────────────────────
+# Publish workflow (once CI is green):
+#
+#   pip install hatch
+#   hatch build                        # builds dist/ with .tar.gz and .whl
+#   hatch publish                      # uploads to PyPI (prompts for token)
+#
+# Or with twine:
+#   pip install twine
+#   python -m build
+#   twine upload dist/*
+#
+# PyPI token: set HATCH_INDEX_AUTH or TWINE_PASSWORD env var.
+# Test first:
+#   twine upload --repository testpypi dist/*
+#

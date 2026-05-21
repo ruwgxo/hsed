@@ -1,52 +1,12 @@
 """
-hsed.cli.main
-─────────────
-CLI for the HSED permission framework.
-
-Commands:
-    hsed role list
-    hsed role show <name>
-    hsed role create <name> --permissions <int> [--description <str>]
-
-    hsed policy init [--name <str>] [--output <path>]
-    hsed policy show <file>
-    hsed policy validate <file>
-
-    hsed generate aws-kms   --policy <file> --role <name> --key-arn <arn>
-    hsed generate vault     --policy <file> --role <name> --mount <mount> --key <key>
-
-    hsed audit <file>
+hsed.cli.main — full CLI with all integrations and live-audit
 """
 
 from __future__ import annotations
-
-import argparse
-import json
-import sys
+import argparse, json, sys
 from pathlib import Path
 from typing import NoReturn
 
-
-# ---------------------------------------------------------------------------
-# Lazy imports (avoid heavyweight imports on every invocation)
-# ---------------------------------------------------------------------------
-
-def _permissions():
-    from hsed.core.permissions import (
-        Bit, Role, builtin_role, permission_string, parse_permission_string,
-        HSEDValidationError,
-    )
-    return locals()
-
-
-def _policy_mod():
-    from hsed.core.policy import Policy, RoleNotFoundError
-    return locals()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _err(msg: str) -> NoReturn:
     print(f"hsed: error: {msg}", file=sys.stderr)
@@ -59,6 +19,7 @@ def _ok(msg: str) -> None:
 
 def _load_policy(path: str):
     from hsed.core.policy import Policy
+
     try:
         return Policy.load(path)
     except FileNotFoundError:
@@ -67,22 +28,21 @@ def _load_policy(path: str):
         _err(f"Failed to load policy: {exc}")
 
 
-# ---------------------------------------------------------------------------
-# Subcommand handlers
-# ---------------------------------------------------------------------------
-
 # ── role ──────────────────────────────────────────────────────────────────
 
-def cmd_role_list(_args: argparse.Namespace) -> None:
-    from hsed.core.permissions import Role, permission_string
+
+def cmd_role_list(_args):
+    from hsed.core.permissions import Role
+
     _ok(f"{'NAME':<14} {'PERM':>4}  {'LABEL'}  DESCRIPTION")
     _ok("-" * 60)
     for name, role in sorted(Role.BUILTIN.items()):
         _ok(f"{name:<14} {role.permissions:>4}  {role.label}  {role.description}")
 
 
-def cmd_role_show(args: argparse.Namespace) -> None:
-    from hsed.core.permissions import builtin_role, HSEDValidationError, active_bits
+def cmd_role_show(args):
+    from hsed.core.permissions import builtin_role, HSEDValidationError
+
     try:
         role = builtin_role(args.name)
     except HSEDValidationError as e:
@@ -93,24 +53,20 @@ def cmd_role_show(args: argparse.Namespace) -> None:
     _ok(f"Description: {role.description}")
 
 
-def cmd_role_create(args: argparse.Namespace) -> None:
+def cmd_role_create(args):
     from hsed.core.permissions import Role, HSEDValidationError, parse_permission_string
+
     try:
-        # Accept integer or HSED string (e.g. 'HS--' or '12')
         perm_raw = args.permissions
-        if perm_raw.isdigit():
-            permissions = int(perm_raw)
-        else:
-            permissions = parse_permission_string(perm_raw)
+        permissions = int(perm_raw) if perm_raw.isdigit() else parse_permission_string(perm_raw)
         role = Role(args.name, permissions=permissions, description=args.description or "")
     except HSEDValidationError as e:
         _err(str(e))
-
     _ok(f"Created role '{role.name}': hsed:{role.label}/{role.permissions}")
     _ok(f"  Active bits: {', '.join(b.name for b in role.bits) or 'none'}")
-
     if args.policy:
         from hsed.core.policy import Policy, RoleConflictError
+
         p = _load_policy(args.policy)
         try:
             p.add_role(role, overwrite=args.force)
@@ -122,34 +78,31 @@ def cmd_role_create(args: argparse.Namespace) -> None:
 
 # ── policy ────────────────────────────────────────────────────────────────
 
-def cmd_policy_init(args: argparse.Namespace) -> None:
+
+def cmd_policy_init(args):
     from hsed.core.policy import Policy
     from hsed.core.permissions import Role
 
     name = args.name or "default"
     p = Policy(name=name, description=args.description or "")
-
     if args.roles:
-        for role_spec in args.roles:
-            # Accept "name:perm" pairs or just built-in names
-            if ":" in role_spec:
-                rname, rperm = role_spec.split(":", 1)
+        for spec in args.roles:
+            if ":" in spec:
+                rname, rperm = spec.split(":", 1)
                 p.add_role(Role(rname.strip(), permissions=int(rperm.strip())))
             else:
-                p.add_builtin(role_spec.strip())
-
+                p.add_builtin(spec.strip())
     output = args.output or f"{name}.hsed"
     saved = p.save(output)
     _ok(f"Initialised policy '{name}' → {saved}")
     _ok(str(p))
 
 
-def cmd_policy_show(args: argparse.Namespace) -> None:
-    p = _load_policy(args.file)
-    _ok(str(p))
+def cmd_policy_show(args):
+    _ok(str(_load_policy(args.file)))
 
 
-def cmd_policy_validate(args: argparse.Namespace) -> None:
+def cmd_policy_validate(args):
     p = _load_policy(args.file)
     warnings = p.validate()
     if not warnings:
@@ -163,69 +116,118 @@ def cmd_policy_validate(args: argparse.Namespace) -> None:
 
 # ── generate ──────────────────────────────────────────────────────────────
 
-def cmd_generate_aws_kms(args: argparse.Namespace) -> None:
+
+def cmd_generate_aws_kms(args):
     from hsed.integrations.aws_kms import AWSKMSGenerator
+
     p = _load_policy(args.policy)
-    gen = AWSKMSGenerator(p)
     try:
-        doc = gen.generate(
-            role=args.role,
-            key_arn=args.key_arn,
-            principal=args.principal,
+        doc = AWSKMSGenerator(p).generate(
+            role=args.role, key_arn=args.key_arn, principal=args.principal
         )
     except Exception as e:
         _err(str(e))
-
-    output_json = doc.to_json()
-
+    out = doc.to_json()
     if args.output:
-        path = Path(args.output)
-        path.write_text(output_json, encoding="utf-8")
-        _ok(f"Wrote AWS KMS policy → {path}")
+        Path(args.output).write_text(out, encoding="utf-8")
+        _ok(f"Wrote AWS KMS policy → {args.output}")
         if args.metadata:
             _ok(json.dumps(doc.metadata(), indent=2))
     else:
-        _ok(output_json)
+        _ok(out)
         if args.metadata:
-            _ok("\n# Metadata:")
             _ok(json.dumps(doc.metadata(), indent=2))
 
 
-def cmd_generate_vault(args: argparse.Namespace) -> None:
+def cmd_generate_vault(args):
     from hsed.integrations.vault import VaultGenerator
+
     p = _load_policy(args.policy)
-    gen = VaultGenerator(p)
     try:
-        doc = gen.generate(
-            role=args.role,
-            mount=args.mount or "transit",
-            key_name=args.key or "*",
+        doc = VaultGenerator(p).generate(
+            role=args.role, mount=args.mount or "transit", key_name=args.key or "*"
         )
     except Exception as e:
         _err(str(e))
-
     hcl = doc.to_hcl()
-
     if args.output:
-        path = Path(args.output)
-        path.write_text(hcl, encoding="utf-8")
-        _ok(f"Wrote Vault HCL policy → {path}")
+        Path(args.output).write_text(hcl, encoding="utf-8")
+        _ok(f"Wrote Vault HCL policy → {args.output}")
     else:
         _ok(hcl)
 
 
+def cmd_generate_azure(args):
+    from hsed.integrations.azure_keyvault import AzureKeyVaultGenerator
+
+    p = _load_policy(args.policy)
+    try:
+        doc = AzureKeyVaultGenerator(p).generate(
+            role=args.role, tenant_id=args.tenant_id, object_id=args.object_id
+        )
+    except Exception as e:
+        _err(str(e))
+    out = doc.to_json()
+    if args.output:
+        Path(args.output).write_text(out, encoding="utf-8")
+        _ok(f"Wrote Azure Key Vault access policy → {args.output}")
+    else:
+        _ok(out)
+
+
+def cmd_generate_azure_rbac(args):
+    from hsed.integrations.azure_keyvault import AzureKeyVaultGenerator
+
+    p = _load_policy(args.policy)
+    try:
+        doc = AzureKeyVaultGenerator(p).generate_rbac(
+            role=args.role, scope=args.scope, principal_id=args.principal_id
+        )
+    except Exception as e:
+        _err(str(e))
+    out = doc.to_json()
+    if args.output:
+        Path(args.output).write_text(out, encoding="utf-8")
+        _ok(f"Wrote Azure RBAC assignment → {args.output}")
+    else:
+        _ok(out)
+
+
+def cmd_generate_gcp_kms(args):
+    from hsed.integrations.gcp_kms import GCPKMSGenerator
+
+    p = _load_policy(args.policy)
+    try:
+        doc = GCPKMSGenerator(p).generate(
+            role=args.role, member=args.member, resource=args.resource
+        )
+    except Exception as e:
+        _err(str(e))
+    if args.gcloud:
+        _ok(doc.to_gcloud_command())
+        return
+    out = doc.to_json()
+    if args.output:
+        Path(args.output).write_text(out, encoding="utf-8")
+        _ok(f"Wrote GCP KMS IAM binding → {args.output}")
+    else:
+        _ok(out)
+
+
 # ── audit ─────────────────────────────────────────────────────────────────
 
-def cmd_audit(args: argparse.Namespace) -> None:
+
+def cmd_audit_file(args):
+    from hsed.core.permissions import Bit
+
     p = _load_policy(args.file)
     _ok(f"Policy: {p.name}")
     _ok(f"Roles:  {len(p)}")
     _ok("")
     _ok(f"{'ROLE':<16} {'PERM':>4}  {'LABEL'}  {'H':>1} {'S':>1} {'E':>1} {'D':>1}  DESCRIPTION")
     _ok("-" * 72)
-    from hsed.core.permissions import Bit
     for role in sorted(p.roles(), key=lambda r: -r.permissions):
-        row = (
+        _ok(
             f"{role.name:<16} {role.permissions:>4}  {role.label}  "
             f"{'✓' if role.can(Bit.HASH) else '·':>1} "
             f"{'✓' if role.can(Bit.SIGN) else '·':>1} "
@@ -233,8 +235,6 @@ def cmd_audit(args: argparse.Namespace) -> None:
             f"{'✓' if role.can(Bit.DECRYPT) else '·':>1}  "
             f"{role.description}"
         )
-        _ok(row)
-
     warnings = p.validate()
     if warnings:
         _ok("")
@@ -243,106 +243,155 @@ def cmd_audit(args: argparse.Namespace) -> None:
             _ok(f"   • {w}")
 
 
-# ---------------------------------------------------------------------------
-# Parser construction
-# ---------------------------------------------------------------------------
+def cmd_live_audit_aws(args):
+    from hsed.integrations.live_audit import AWSLiveAuditor
+
+    p = _load_policy(args.policy)
+    auditor = AWSLiveAuditor(p, aws_profile=args.profile, aws_region=args.region)
+    roles_to_audit = [args.role] if args.role else list(p.role_names())
+    all_passed = True
+    for role_name in roles_to_audit:
+        try:
+            result = auditor.audit(role=role_name, key_arn=args.key_arn, strict=args.strict)
+        except Exception as exc:
+            _ok(f"[{role_name}] ERROR: {exc}")
+            all_passed = False
+            continue
+        _ok(result.summary())
+        _ok("")
+        if args.json_out:
+            _ok(json.dumps(result.to_dict(), indent=2))
+        if not result.passed:
+            all_passed = False
+    sys.exit(0 if all_passed else 1)
+
+
+# ── parser ────────────────────────────────────────────────────────────────
+
 
 def build_parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="hsed",
-        description="HSED - cryptographic permission framework (Hash|Sign|Encrypt|Decrypt)",
+        description="HSED — cryptographic permission framework (Hash|Sign|Encrypt|Decrypt)",
     )
     sub = root.add_subparsers(dest="command", required=True)
 
-    # ── role ──────────────────────────────────────────────────────────
-    role_p = sub.add_parser("role", help="Role operations")
-    role_sub = role_p.add_subparsers(dest="role_cmd", required=True)
+    # role
+    rp = sub.add_parser("role")
+    rs = rp.add_subparsers(dest="role_cmd", required=True)
+    rs.add_parser("list")
+    sp = rs.add_parser("show")
+    sp.add_argument("name")
+    cp = rs.add_parser("create")
+    cp.add_argument("name")
+    cp.add_argument("--permissions", "-p", required=True)
+    cp.add_argument("--description", "-d", default="")
+    cp.add_argument("--policy")
+    cp.add_argument("--force", action="store_true")
 
-    role_sub.add_parser("list", help="List built-in HSED roles")
+    # policy
+    pp = sub.add_parser("policy")
+    ps = pp.add_subparsers(dest="policy_cmd", required=True)
+    ip = ps.add_parser("init")
+    ip.add_argument("--name", default="default")
+    ip.add_argument("--description", default="")
+    ip.add_argument("--roles", nargs="*")
+    ip.add_argument("--output", "-o")
+    shp = ps.add_parser("show")
+    shp.add_argument("file")
+    vp = ps.add_parser("validate")
+    vp.add_argument("file")
 
-    show_p = role_sub.add_parser("show", help="Show details for a built-in role")
-    show_p.add_argument("name", help="Role name (e.g. signer, vault)")
+    # generate
+    gp = sub.add_parser("generate")
+    gs = gp.add_subparsers(dest="gen_target", required=True)
 
-    create_p = role_sub.add_parser("create", help="Create a new role")
-    create_p.add_argument("name", help="Role name")
-    create_p.add_argument("--permissions", "-p", required=True,
-                          help="Permission value: integer (12) or HSED string (HS--)")
-    create_p.add_argument("--description", "-d", default="", help="Role description")
-    create_p.add_argument("--policy", help="Path to .hsed policy file to add the role to")
-    create_p.add_argument("--force", action="store_true",
-                          help="Overwrite existing role of same name in policy")
+    ap = gs.add_parser("aws-kms")
+    ap.add_argument("--policy", required=True)
+    ap.add_argument("--role", required=True)
+    ap.add_argument("--key-arn", required=True, dest="key_arn")
+    ap.add_argument("--principal")
+    ap.add_argument("--output", "-o")
+    ap.add_argument("--metadata", action="store_true")
 
-    # ── policy ────────────────────────────────────────────────────────
-    policy_p = sub.add_parser("policy", help="Policy file operations")
-    policy_sub = policy_p.add_subparsers(dest="policy_cmd", required=True)
+    vtp = gs.add_parser("vault")
+    vtp.add_argument("--policy", required=True)
+    vtp.add_argument("--role", required=True)
+    vtp.add_argument("--mount", default="transit")
+    vtp.add_argument("--key", default="*")
+    vtp.add_argument("--output", "-o")
 
-    init_p = policy_sub.add_parser("init", help="Create a new policy file")
-    init_p.add_argument("--name", default="default", help="Policy name")
-    init_p.add_argument("--description", default="", help="Policy description")
-    init_p.add_argument("--roles", nargs="*",
-                        help="Built-in role names or 'name:perm' pairs to include")
-    init_p.add_argument("--output", "-o", help="Output path (default: <name>.hsed)")
+    azp = gs.add_parser("azure")
+    azp.add_argument("--policy", required=True)
+    azp.add_argument("--role", required=True)
+    azp.add_argument("--tenant-id", required=True, dest="tenant_id")
+    azp.add_argument("--object-id", required=True, dest="object_id")
+    azp.add_argument("--output", "-o")
 
-    show2_p = policy_sub.add_parser("show", help="Display a policy file")
-    show2_p.add_argument("file", help="Path to .hsed file")
+    azrp = gs.add_parser("azure-rbac")
+    azrp.add_argument("--policy", required=True)
+    azrp.add_argument("--role", required=True)
+    azrp.add_argument("--scope", required=True)
+    azrp.add_argument("--principal-id", required=True, dest="principal_id")
+    azrp.add_argument("--output", "-o")
 
-    val_p = policy_sub.add_parser("validate", help="Validate a policy file")
-    val_p.add_argument("file", help="Path to .hsed file")
+    gcpp = gs.add_parser("gcp-kms")
+    gcpp.add_argument("--policy", required=True)
+    gcpp.add_argument("--role", required=True)
+    gcpp.add_argument("--member", required=True)
+    gcpp.add_argument("--resource", required=True)
+    gcpp.add_argument("--output", "-o")
+    gcpp.add_argument("--gcloud", action="store_true")
 
-    # ── generate ──────────────────────────────────────────────────────
-    gen_p = sub.add_parser("generate", help="Generate cloud provider policies")
-    gen_sub = gen_p.add_subparsers(dest="gen_target", required=True)
+    # audit (static file)
+    audp = sub.add_parser("audit")
+    audp.add_argument("file")
 
-    aws_p = gen_sub.add_parser("aws-kms", help="Generate AWS KMS IAM policy")
-    aws_p.add_argument("--policy", required=True, help="Path to .hsed policy file")
-    aws_p.add_argument("--role", required=True, help="Role name")
-    aws_p.add_argument("--key-arn", required=True, dest="key_arn", help="KMS key ARN")
-    aws_p.add_argument("--principal", help="IAM principal ARN (optional)")
-    aws_p.add_argument("--output", "-o", help="Output file path (default: stdout)")
-    aws_p.add_argument("--metadata", action="store_true", help="Include HSED metadata")
-
-    vault_p = gen_sub.add_parser("vault", help="Generate HashiCorp Vault HCL policy")
-    vault_p.add_argument("--policy", required=True, help="Path to .hsed policy file")
-    vault_p.add_argument("--role", required=True, help="Role name")
-    vault_p.add_argument("--mount", default="transit", help="Vault transit mount (default: transit)")
-    vault_p.add_argument("--key", default="*", help="Key name within mount (default: *)")
-    vault_p.add_argument("--output", "-o", help="Output file path (default: stdout)")
-
-    # ── audit ─────────────────────────────────────────────────────────
-    audit_p = sub.add_parser("audit", help="Audit a policy file")
-    audit_p.add_argument("file", help="Path to .hsed file")
+    # live-audit
+    lap = sub.add_parser("live-audit")
+    las = lap.add_subparsers(dest="live_target", required=True)
+    laa = las.add_parser("aws-kms")
+    laa.add_argument("--policy", required=True)
+    laa.add_argument("--role")
+    laa.add_argument("--key-arn", required=True, dest="key_arn")
+    laa.add_argument("--profile")
+    laa.add_argument("--region")
+    laa.add_argument("--strict", action="store_true")
+    laa.add_argument("--json", action="store_true", dest="json_out")
 
     return root
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
     dispatch = {
-        ("role", "list"):       cmd_role_list,
-        ("role", "show"):       cmd_role_show,
-        ("role", "create"):     cmd_role_create,
-        ("policy", "init"):     cmd_policy_init,
-        ("policy", "show"):     cmd_policy_show,
+        ("role", "list"): cmd_role_list,
+        ("role", "show"): cmd_role_show,
+        ("role", "create"): cmd_role_create,
+        ("policy", "init"): cmd_policy_init,
+        ("policy", "show"): cmd_policy_show,
         ("policy", "validate"): cmd_policy_validate,
-        ("generate", "aws-kms"):cmd_generate_aws_kms,
-        ("generate", "vault"):  cmd_generate_vault,
-        ("audit", None):        cmd_audit,
+        ("generate", "aws-kms"): cmd_generate_aws_kms,
+        ("generate", "vault"): cmd_generate_vault,
+        ("generate", "azure"): cmd_generate_azure,
+        ("generate", "azure-rbac"): cmd_generate_azure_rbac,
+        ("generate", "gcp-kms"): cmd_generate_gcp_kms,
+        ("audit", None): cmd_audit_file,
+        ("live-audit", "aws-kms"): cmd_live_audit_aws,
     }
 
-    key = (args.command, getattr(args, "role_cmd", None)
-                          or getattr(args, "policy_cmd", None)
-                          or getattr(args, "gen_target", None))
-
+    key = (
+        args.command,
+        getattr(args, "role_cmd", None)
+        or getattr(args, "policy_cmd", None)
+        or getattr(args, "gen_target", None)
+        or getattr(args, "live_target", None),
+    )
     handler = dispatch.get(key)
     if handler is None:
-        _err(f"Unknown command: {args.command}")
-
+        _err(f"Unknown command: {key}")
     handler(args)
 
 
