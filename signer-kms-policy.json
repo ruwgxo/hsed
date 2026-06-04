@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "HSEDHSAllow",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetPublicKey",
+        "kms:Sign",
+        "kms:Verify"
+      ],
+      "Resource": "arn:aws:kms:us-east-1:123456789012:key/mrk-abc123"
+    },
+    {
+      "Sid": "HSEDDenyDestructive",
+      "Effect": "Deny",
+      "Action": [
+        "kms:DeleteAlias",
+        "kms:DeleteImportedKeyMaterial",
+        "kms:DisableKey",
+        "kms:ScheduleKeyDeletion"
+      ],
+      "Resource": "arn:aws:kms:us-east-1:123456789012:key/mrk-abc123"
+    }
+  ]
+}

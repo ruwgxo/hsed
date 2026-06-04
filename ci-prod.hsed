@@ -1,0 +1,18 @@
+{
+  "policy": "ci-prod",
+  "description": "",
+  "roles": [
+    {
+      "name": "audit",
+      "permissions": 9,
+      "label": "H--D",
+      "description": "H+D - compliance, forensics, read-only"
+    },
+    {
+      "name": "signer",
+      "permissions": 12,
+      "label": "HS--",
+      "description": "H+S - CI/CD pipelines, code signing"
+    }
+  ]
+}
