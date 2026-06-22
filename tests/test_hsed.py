@@ -574,3 +574,488 @@ class TestEdgeCases:
     def test_policy_load_missing_file(self):
         with pytest.raises(FileNotFoundError):
             Policy.load("/tmp/this_file_does_not_exist_hsed_test.hsed")
+
+
+# ===========================================================================
+# PolicyDiff
+# ===========================================================================
+
+
+class TestPolicyDiff:
+    def _make(self, roles: dict[str, int], name: str = 'test') -> Policy:
+        p = Policy(name)
+        for role_name, perm in roles.items():
+            p.add_role(Role(role_name, permissions=perm))
+        return p
+
+    # --- diff() ---
+
+    def test_identical_policies_is_empty(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12, 'vault': 3})
+        b = self._make({'signer': 12, 'vault': 3})
+        result = diff(a, b)
+        assert result.is_empty
+        assert not result.has_escalation
+
+    def test_role_added(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})
+        b = self._make({'signer': 12, 'vault': 3})
+        result = diff(a, b)
+        assert not result.is_empty
+        assert 'vault' in result.roles_added
+        assert result.roles_removed == []
+
+    def test_role_removed(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12, 'vault': 3})
+        b = self._make({'signer': 12})
+        result = diff(a, b)
+        assert 'vault' in result.roles_removed
+        assert result.roles_added == []
+
+    def test_permission_change_escalation(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})   # HS--
+        b = self._make({'signer': 15})   # HSED — gained E+D
+        result = diff(a, b)
+        assert result.has_escalation
+        assert len(result.permission_changes) == 1
+        assert result.permission_changes[0].is_escalation
+        assert result.escalations[0].name == 'signer'
+
+    def test_permission_change_reduction(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 15})
+        b = self._make({'signer': 12})
+        result = diff(a, b)
+        assert not result.has_escalation
+        assert result.permission_changes[0].is_reduction
+
+    def test_bits_added_mask(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})   # 1100
+        b = self._make({'signer': 15})   # 1111 — gained bits 2 and 1
+        result = diff(a, b)
+        change = result.permission_changes[0]
+        assert change.bits_added == 3   # E=2 + D=1
+
+    def test_bits_removed_mask(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 15})
+        b = self._make({'signer': 12})
+        result = diff(a, b)
+        change = result.permission_changes[0]
+        assert change.bits_removed == 3
+
+    def test_summary_contains_policy_names(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12}, name='main')
+        b = self._make({'signer': 15}, name='pr')
+        result = diff(a, b)
+        summary = result.summary()
+        assert 'main' in summary
+        assert 'pr' in summary
+
+    def test_summary_flags_escalation(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})
+        b = self._make({'signer': 15})
+        result = diff(a, b)
+        assert 'escalation' in result.summary().lower()
+
+    def test_to_dict_structure(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})
+        b = self._make({'signer': 15, 'vault': 3})
+        result = diff(a, b)
+        d = result.to_dict()
+        assert 'policy_a' in d
+        assert 'policy_b' in d
+        assert 'roles_added' in d
+        assert 'roles_removed' in d
+        assert 'permission_changes' in d
+        assert 'has_escalation' in d
+
+    def test_to_json_is_valid(self):
+        import json as _json
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})
+        b = self._make({'vault': 3})
+        result = diff(a, b)
+        parsed = _json.loads(result.to_json())
+        assert parsed['policy_a'] == 'test'
+
+    def test_no_changes_summary(self):
+        from hsed.core.diff import diff
+        a = self._make({'signer': 12})
+        b = self._make({'signer': 12})
+        result = diff(a, b)
+        assert 'No differences' in result.summary() or result.is_empty
+
+
+# ===========================================================================
+# Merge
+# ===========================================================================
+
+
+class TestMerge:
+    def _policy(self, name: str, roles: dict[str, int]) -> Policy:
+        p = Policy(name)
+        for role_name, perm in roles.items():
+            p.add_role(Role(role_name, permissions=perm))
+        return p
+
+    def test_single_policy_passthrough(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 12, 'vault': 3})
+        m = merge([a])
+        assert sorted(m.role_names()) == ['signer', 'vault']
+
+    def test_disjoint_roles_merged(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 12})
+        b = self._policy('b', {'vault': 3})
+        m = merge([a, b])
+        assert sorted(m.role_names()) == ['signer', 'vault']
+
+    def test_identical_roles_merged_unchanged(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 12})
+        b = self._policy('b', {'signer': 12})
+        m = merge([a, b])
+        assert m.get_role('signer').permissions == 12
+
+    def test_strict_raises_on_conflict(self):
+        from hsed.core.merge import merge, MergeConflict
+        a = self._policy('a', {'signer': 12})
+        b = self._policy('b', {'signer': 15})
+        with pytest.raises(MergeConflict) as exc_info:
+            merge([a, b])
+        assert 'signer' in str(exc_info.value)
+
+    def test_least_privilege_intersection(self):
+        from hsed.core.merge import merge, MergeStrategy
+        a = self._policy('a', {'signer': 15})   # HSED
+        b = self._policy('b', {'signer': 12})   # HS--
+        m = merge([a, b], strategy=MergeStrategy.LEAST_PRIVILEGE)
+        # AND: 15 & 12 = 12
+        assert m.get_role('signer').permissions == 12
+
+    def test_most_permissive_union(self):
+        from hsed.core.merge import merge, MergeStrategy
+        a = self._policy('a', {'signer': 12})   # HS--
+        b = self._policy('b', {'signer': 3})    # --ED
+        m = merge([a, b], strategy=MergeStrategy.MOST_PERMISSIVE)
+        # OR: 12 | 3 = 15
+        assert m.get_role('signer').permissions == 15
+
+    def test_strategy_string_accepted(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 12})
+        b = self._policy('b', {'signer': 12})
+        m = merge([a, b], strategy='strict')
+        assert m.get_role('signer').permissions == 12
+
+    def test_least_privilege_string(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 15})
+        b = self._policy('b', {'signer': 12})
+        m = merge([a, b], strategy='least-privilege')
+        assert m.get_role('signer').permissions == 12
+
+    def test_most_permissive_string(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 12})
+        b = self._policy('b', {'signer': 3})
+        m = merge([a, b], strategy='most-permissive')
+        assert m.get_role('signer').permissions == 15
+
+    def test_custom_output_name(self):
+        from hsed.core.merge import merge
+        a = self._policy('a', {'signer': 12})
+        m = merge([a], name='platform-policy')
+        assert m.name == 'platform-policy'
+
+    def test_empty_policies_raises(self):
+        from hsed.core.merge import merge
+        with pytest.raises(ValueError):
+            merge([])
+
+    def test_three_policies_least_privilege(self):
+        from hsed.core.merge import merge, MergeStrategy
+        a = self._policy('a', {'signer': 15})  # 1111
+        b = self._policy('b', {'signer': 14})  # 1110
+        c = self._policy('c', {'signer': 12})  # 1100
+        m = merge([a, b, c], strategy=MergeStrategy.LEAST_PRIVILEGE)
+        # 15 & 14 & 12 = 12
+        assert m.get_role('signer').permissions == 12
+
+    def test_merge_preserves_unique_roles(self):
+        from hsed.core.merge import merge, MergeStrategy
+        a = self._policy('a', {'signer': 12, 'vault': 3})
+        b = self._policy('b', {'signer': 14, 'audit': 9})
+        m = merge([a, b], strategy=MergeStrategy.MOST_PERMISSIVE)
+        assert sorted(m.role_names()) == ['audit', 'signer', 'vault']
+
+    def test_merge_conflict_message_includes_policies(self):
+        from hsed.core.merge import merge, MergeConflict
+        a = self._policy('base', {'signer': 12})
+        b = self._policy('overlay', {'signer': 15})
+        with pytest.raises(MergeConflict) as exc_info:
+            merge([a, b])
+        msg = str(exc_info.value)
+        assert 'base' in msg or 'overlay' in msg
+
+
+# ===========================================================================
+# Lint
+# ===========================================================================
+
+
+class TestLint:
+    def _policy(self, roles: dict[str, int], name: str = 'test') -> Policy:
+        p = Policy(name)
+        for role_name, perm in roles.items():
+            p.add_role(Role(role_name, permissions=perm))
+        return p
+
+    def test_clean_policy_passes(self):
+        from hsed.core.lint import lint
+        p = self._policy({'signer': 12, 'vault': 3})
+        result = lint(p)
+        assert result.passed
+        assert result.findings == []
+
+    def test_empty_policy_is_error(self):
+        from hsed.core.lint import lint, LintSeverity
+        p = Policy('empty')
+        result = lint(p)
+        assert not result.passed
+        assert any(f.code == 'EMPTY_POLICY' and f.severity == LintSeverity.ERROR
+                   for f in result.findings)
+
+    def test_zero_permissions_is_error(self):
+        from hsed.core.lint import lint, LintSeverity
+        p = self._policy({'ghost': 0})
+        result = lint(p)
+        assert not result.passed
+        assert any(f.code == 'ZERO_PERMISSIONS' for f in result.findings)
+
+    def test_root_without_description_warns(self):
+        from hsed.core.lint import lint, LintSeverity
+        p = Policy('prod')
+        p.add_role(Role('superuser', permissions=15))  # no description
+        result = lint(p)
+        assert result.passed  # WARN only, not ERROR
+        assert any(f.code == 'ROOT_UNDOCUMENTED' and f.severity == LintSeverity.WARN
+                   for f in result.findings)
+
+    def test_root_with_description_no_warn(self):
+        from hsed.core.lint import lint
+        p = Policy('prod')
+        p.add_role(Role('superuser', permissions=15, description='Required for key rotation'))
+        result = lint(p)
+        assert not any(f.code == 'ROOT_UNDOCUMENTED' for f in result.findings)
+
+    def test_sign_without_hash_warns(self):
+        from hsed.core.lint import lint, LintSeverity
+        p = self._policy({'signer_bad': 4})   # S bit only, no H
+        result = lint(p)
+        assert any(f.code == 'SIGN_WITHOUT_HASH' and f.severity == LintSeverity.WARN
+                   for f in result.findings)
+
+    def test_sign_with_hash_no_warn(self):
+        from hsed.core.lint import lint
+        p = self._policy({'signer': 12})  # HS--
+        result = lint(p)
+        assert not any(f.code == 'SIGN_WITHOUT_HASH' for f in result.findings)
+
+    def test_decrypt_without_encrypt_warns(self):
+        from hsed.core.lint import lint, LintSeverity
+        p = self._policy({'escrow': 1})   # D bit only
+        result = lint(p)
+        assert any(f.code == 'DECRYPT_WITHOUT_ENCRYPT' and f.severity == LintSeverity.WARN
+                   for f in result.findings)
+
+    def test_decrypt_with_encrypt_no_warn(self):
+        from hsed.core.lint import lint
+        p = self._policy({'vault': 3})   # --ED
+        result = lint(p)
+        assert not any(f.code == 'DECRYPT_WITHOUT_ENCRYPT' for f in result.findings)
+
+    def test_errors_and_warnings_properties(self):
+        from hsed.core.lint import lint
+        p = Policy('mixed')
+        p.add_role(Role('bad', permissions=0))     # ERROR: zero perms
+        p.add_role(Role('root_role', permissions=15))  # WARN: undocumented root
+        result = lint(p)
+        assert len(result.errors) >= 1
+        assert len(result.warnings) >= 1
+
+    def test_summary_contains_policy_name(self):
+        from hsed.core.lint import lint
+        p = Policy('my-policy')
+        p.add_role(Role('signer', permissions=12))
+        result = lint(p)
+        assert 'my-policy' in result.summary()
+
+    def test_summary_fail_on_error(self):
+        from hsed.core.lint import lint
+        p = Policy('bad')
+        result = lint(p)
+        assert 'FAIL' in result.summary()
+
+    def test_summary_pass_on_clean(self):
+        from hsed.core.lint import lint
+        p = self._policy({'signer': 12})
+        result = lint(p)
+        assert 'OK' in result.summary()
+
+    def test_to_dict_structure(self):
+        from hsed.core.lint import lint
+        p = self._policy({'signer': 12})
+        d = lint(p).to_dict()
+        assert 'policy' in d
+        assert 'passed' in d
+        assert 'findings' in d
+        assert 'error_count' in d
+        assert 'warning_count' in d
+
+    def test_to_json_valid(self):
+        import json as _json
+        from hsed.core.lint import lint
+        p = self._policy({'signer': 12})
+        parsed = _json.loads(lint(p).to_json())
+        assert parsed['passed'] is True
+
+    def test_finding_includes_role_name(self):
+        from hsed.core.lint import lint
+        p = self._policy({'bad_signer': 4})  # sign without hash
+        result = lint(p)
+        finding = next(f for f in result.findings if f.code == 'SIGN_WITHOUT_HASH')
+        assert finding.role == 'bad_signer'
+
+    def test_multiple_checks_run_independently(self):
+        from hsed.core.lint import lint
+        p = Policy('multi')
+        p.add_role(Role('bad1', permissions=0))   # ZERO_PERMISSIONS
+        p.add_role(Role('bad2', permissions=4))   # SIGN_WITHOUT_HASH
+        result = lint(p)
+        codes = {f.code for f in result.findings}
+        assert 'ZERO_PERMISSIONS' in codes
+        assert 'SIGN_WITHOUT_HASH' in codes
+
+
+# ===========================================================================
+# CLI: diff / policy merge / policy lint
+# ===========================================================================
+
+
+class TestCLIDiffMergeLint:
+    def _run(self, *args):
+        import subprocess
+        return subprocess.run(
+            ['python', '-m', 'hsed.cli.main'] + list(args),
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).parent.parent),
+        )
+
+    def _write_policy(self, tmp_path, name: str, roles: dict[str, int]) -> str:
+        p = Policy(name)
+        for role_name, perm in roles.items():
+            p.add_role(Role(role_name, permissions=perm))
+        path = str(tmp_path / f'{name}.hsed')
+        p.save(path)
+        return path
+
+    # --- diff ---
+
+    def test_diff_identical_exits_zero(self, tmp_path):
+        a = self._write_policy(tmp_path, 'a', {'signer': 12})
+        b = self._write_policy(tmp_path, 'b', {'signer': 12})
+        result = self._run('diff', a, b)
+        assert result.returncode == 0
+
+    def test_diff_escalation_exits_one_with_flag(self, tmp_path):
+        a = self._write_policy(tmp_path, 'a', {'signer': 12})
+        b = self._write_policy(tmp_path, 'b', {'signer': 15})
+        result = self._run('diff', a, b, '--fail-on-escalation')
+        assert result.returncode == 1
+
+    def test_diff_no_escalation_exits_zero_with_flag(self, tmp_path):
+        a = self._write_policy(tmp_path, 'a', {'signer': 15})
+        b = self._write_policy(tmp_path, 'b', {'signer': 12})   # reduction, not escalation
+        result = self._run('diff', a, b, '--fail-on-escalation')
+        assert result.returncode == 0
+
+    def test_diff_json_output(self, tmp_path):
+        import json as _json
+        a = self._write_policy(tmp_path, 'a', {'signer': 12})
+        b = self._write_policy(tmp_path, 'b', {'signer': 15})
+        result = self._run('diff', a, b, '--json')
+        assert result.returncode == 0
+        parsed = _json.loads(result.stdout)
+        assert 'has_escalation' in parsed
+        assert parsed['has_escalation'] is True
+
+    # --- policy merge ---
+
+    def test_merge_disjoint_exits_zero(self, tmp_path):
+        a = self._write_policy(tmp_path, 'a', {'signer': 12})
+        b = self._write_policy(tmp_path, 'b', {'vault': 3})
+        result = self._run('policy', 'merge', a, b)
+        assert result.returncode == 0
+        import json as _json
+        parsed = _json.loads(result.stdout)
+        role_names = [r['name'] for r in parsed['roles']]
+        assert 'signer' in role_names
+        assert 'vault' in role_names
+
+    def test_merge_strict_conflict_exits_nonzero(self, tmp_path):
+        a = self._write_policy(tmp_path, 'a', {'signer': 12})
+        b = self._write_policy(tmp_path, 'b', {'signer': 15})
+        result = self._run('policy', 'merge', a, b, '--strategy', 'strict')
+        assert result.returncode != 0
+
+    def test_merge_least_privilege(self, tmp_path):
+        import json as _json
+        a = self._write_policy(tmp_path, 'a', {'signer': 15})
+        b = self._write_policy(tmp_path, 'b', {'signer': 12})
+        result = self._run('policy', 'merge', a, b, '--strategy', 'least-privilege')
+        assert result.returncode == 0
+        parsed = _json.loads(result.stdout)
+        signer = next(r for r in parsed['roles'] if r['name'] == 'signer')
+        assert signer['permissions'] == 12
+
+    def test_merge_output_file(self, tmp_path):
+        out = str(tmp_path / 'merged.hsed')
+        a = self._write_policy(tmp_path, 'a', {'signer': 12})
+        b = self._write_policy(tmp_path, 'b', {'vault': 3})
+        result = self._run('policy', 'merge', a, b, '--output', out)
+        assert result.returncode == 0
+        assert Path(out).exists()
+
+    # --- policy lint ---
+
+    def test_lint_clean_policy_exits_zero(self, tmp_path):
+        f = self._write_policy(tmp_path, 'clean', {'signer': 12})
+        result = self._run('policy', 'lint', f)
+        assert result.returncode == 0
+
+    def test_lint_empty_policy_exits_nonzero(self, tmp_path):
+        p = Policy('empty')
+        path = str(tmp_path / 'empty.hsed')
+        p.save(path)
+        result = self._run('policy', 'lint', path)
+        assert result.returncode != 0
+
+    def test_lint_json_output(self, tmp_path):
+        import json as _json
+        f = self._write_policy(tmp_path, 'clean', {'signer': 12})
+        result = self._run('policy', 'lint', f, '--json')
+        assert result.returncode == 0
+        parsed = _json.loads(result.stdout)
+        assert 'passed' in parsed
+        assert parsed['passed'] is True
