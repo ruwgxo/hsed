@@ -243,8 +243,58 @@ def cmd_audit_file(args):
             _ok(f"   • {w}")
 
 
+def cmd_diff(args):
+    from hsed.core.diff import diff as _diff
+
+    a = _load_policy(args.file_a)
+    b = _load_policy(args.file_b)
+    result = _diff(a, b)
+
+    if args.json_out:
+        _ok(result.to_json())
+    else:
+        _ok(result.summary())
+
+    if args.fail_on_escalation and result.has_escalation:
+        sys.exit(1)
+
+
+def cmd_policy_merge(args):
+    from hsed.core.merge import merge as _merge, MergeStrategy, MergeConflict
+
+    policies = [_load_policy(f) for f in args.files]
+    try:
+        merged = _merge(
+            policies,
+            strategy=MergeStrategy(args.strategy),
+            name=args.name,
+            description=args.description,
+        )
+    except MergeConflict as exc:
+        _err(str(exc))
+
+    if args.output:
+        out = merged.save(args.output)
+        _ok(f'Merged policy written to {out}')
+    else:
+        _ok(merged.to_json())
+
+
+def cmd_policy_lint(args):
+    from hsed.core.lint import lint as _lint
+
+    p = _load_policy(args.file)
+    result = _lint(p)
+
+    if args.json_out:
+        _ok(result.to_json())
+    else:
+        _ok(result.summary())
+
+    sys.exit(0 if result.passed else 1)
+
+
 def cmd_live_audit_aws(args):
-    from hsed.integrations.live_audit import AWSLiveAuditor
 
     p = _load_policy(args.policy)
     auditor = AWSLiveAuditor(p, aws_profile=args.profile, aws_region=args.region)
@@ -253,6 +303,65 @@ def cmd_live_audit_aws(args):
     for role_name in roles_to_audit:
         try:
             result = auditor.audit(role=role_name, key_arn=args.key_arn, strict=args.strict)
+        except Exception as exc:
+            _ok(f"[{role_name}] ERROR: {exc}")
+            all_passed = False
+            continue
+        _ok(result.summary())
+        _ok("")
+        if args.json_out:
+            _ok(json.dumps(result.to_dict(), indent=2))
+        if not result.passed:
+            all_passed = False
+    sys.exit(0 if all_passed else 1)
+
+
+def cmd_live_audit_azure(args):
+    from hsed.integrations.live_audit import AzureLiveAuditor
+
+    p = _load_policy(args.policy)
+    auditor = AzureLiveAuditor(p)
+    roles_to_audit = [args.role] if args.role else list(p.role_names())
+    all_passed = True
+    for role_name in roles_to_audit:
+        try:
+            result = auditor.audit(
+                role=role_name,
+                vault_uri=args.vault_uri,
+                object_id=args.object_id,
+                subscription_id=args.subscription_id,
+                resource_group=args.resource_group,
+                vault_name=args.vault_name,
+                strict=args.strict,
+            )
+        except Exception as exc:
+            _ok(f"[{role_name}] ERROR: {exc}")
+            all_passed = False
+            continue
+        _ok(result.summary())
+        _ok("")
+        if args.json_out:
+            _ok(json.dumps(result.to_dict(), indent=2))
+        if not result.passed:
+            all_passed = False
+    sys.exit(0 if all_passed else 1)
+
+
+def cmd_live_audit_gcp(args):
+    from hsed.integrations.live_audit import GCPLiveAuditor
+
+    p = _load_policy(args.policy)
+    auditor = GCPLiveAuditor(p)
+    roles_to_audit = [args.role] if args.role else list(p.role_names())
+    all_passed = True
+    for role_name in roles_to_audit:
+        try:
+            result = auditor.audit(
+                role=role_name,
+                resource=args.resource,
+                member=args.member,
+                strict=args.strict,
+            )
         except Exception as exc:
             _ok(f"[{role_name}] ERROR: {exc}")
             all_passed = False
@@ -302,6 +411,36 @@ def build_parser() -> argparse.ArgumentParser:
     vp = ps.add_parser("validate")
     vp.add_argument("file")
 
+    mrgp = ps.add_parser("merge",
+        help="Combine multiple .hsed files into one")
+    mrgp.add_argument("files", nargs="+", metavar="FILE",
+        help="Two or more .hsed policy files to merge")
+    mrgp.add_argument("--strategy", default="strict",
+        choices=["strict", "least-privilege", "most-permissive"],
+        help="How to resolve conflicting role definitions (default: strict)")
+    mrgp.add_argument("--name", default=None,
+        help="Name for the output policy (default: name of first source file)")
+    mrgp.add_argument("--description", default="",
+        help="Description for the output policy")
+    mrgp.add_argument("--output", "-o",
+        help="Write merged policy to this .hsed file (default: print to stdout)")
+
+    lintp = ps.add_parser("lint",
+        help="Run static checks against a .hsed policy file")
+    lintp.add_argument("file", help=".hsed policy file to lint")
+    lintp.add_argument("--json", action="store_true", dest="json_out",
+        help="Output findings as JSON")
+
+    # diff
+    diffp = sub.add_parser("diff",
+        help="Compare two .hsed policy files")
+    diffp.add_argument("file_a", metavar="FILE_A")
+    diffp.add_argument("file_b", metavar="FILE_B")
+    diffp.add_argument("--json", action="store_true", dest="json_out",
+        help="Output diff as JSON")
+    diffp.add_argument("--fail-on-escalation", action="store_true", dest="fail_on_escalation",
+        help="Exit 1 if any role gained permission bits")
+
     # generate
     gp = sub.add_parser("generate")
     gs = gp.add_subparsers(dest="gen_target", required=True)
@@ -350,6 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
     # live-audit
     lap = sub.add_parser("live-audit")
     las = lap.add_subparsers(dest="live_target", required=True)
+
     laa = las.add_parser("aws-kms")
     laa.add_argument("--policy", required=True)
     laa.add_argument("--role")
@@ -358,6 +498,29 @@ def build_parser() -> argparse.ArgumentParser:
     laa.add_argument("--region")
     laa.add_argument("--strict", action="store_true")
     laa.add_argument("--json", action="store_true", dest="json_out")
+
+    laz = las.add_parser("azure-kv")
+    laz.add_argument("--policy", required=True)
+    laz.add_argument("--role")
+    laz.add_argument("--vault-uri", required=True, dest="vault_uri",
+                     help="Azure Key Vault URI, e.g. https://my-vault.vault.azure.net")
+    laz.add_argument("--object-id", required=True, dest="object_id",
+                     help="Azure AD object ID of the principal to audit")
+    laz.add_argument("--subscription-id", required=True, dest="subscription_id")
+    laz.add_argument("--resource-group", required=True, dest="resource_group")
+    laz.add_argument("--vault-name", required=True, dest="vault_name")
+    laz.add_argument("--strict", action="store_true")
+    laz.add_argument("--json", action="store_true", dest="json_out")
+
+    lgp = las.add_parser("gcp-kms")
+    lgp.add_argument("--policy", required=True)
+    lgp.add_argument("--role")
+    lgp.add_argument("--resource", required=True,
+                     help="Full CryptoKey resource path: projects/p/locations/l/keyRings/kr/cryptoKeys/k")
+    lgp.add_argument("--member", required=True,
+                     help="GCP IAM member string, e.g. serviceAccount:sa@project.iam.gserviceaccount.com")
+    lgp.add_argument("--strict", action="store_true")
+    lgp.add_argument("--json", action="store_true", dest="json_out")
 
     return root
 
@@ -373,6 +536,9 @@ def main(argv: list[str] | None = None) -> None:
         ("policy", "init"): cmd_policy_init,
         ("policy", "show"): cmd_policy_show,
         ("policy", "validate"): cmd_policy_validate,
+        ("policy", "merge"): cmd_policy_merge,
+        ("policy", "lint"): cmd_policy_lint,
+        ("diff", None): cmd_diff,
         ("generate", "aws-kms"): cmd_generate_aws_kms,
         ("generate", "vault"): cmd_generate_vault,
         ("generate", "azure"): cmd_generate_azure,
@@ -380,6 +546,8 @@ def main(argv: list[str] | None = None) -> None:
         ("generate", "gcp-kms"): cmd_generate_gcp_kms,
         ("audit", None): cmd_audit_file,
         ("live-audit", "aws-kms"): cmd_live_audit_aws,
+        ("live-audit", "azure-kv"): cmd_live_audit_azure,
+        ("live-audit", "gcp-kms"): cmd_live_audit_gcp,
     }
 
     key = (

@@ -544,3 +544,457 @@ class TestCLINewCommands:
         assert result.returncode == 0
         parsed = json.loads(result.stdout)
         assert parsed["type"] == "Microsoft.Authorization/roleAssignments"
+
+
+# ===========================================================================
+# AzureLiveAuditor — unit tests (no real Azure calls)
+# ===========================================================================
+
+
+class TestAzureLiveAuditorUnit:
+    """Test AzureLiveAuditor internal methods and audit logic without cloud calls."""
+
+    def _auditor(self):
+        from hsed.integrations.live_audit import AzureLiveAuditor
+
+        p = Policy('test')
+        p.add_builtin('signer')   # permissions=12 → sign, verify, get
+        p.add_builtin('vault')    # permissions=3  → decrypt, unwrapKey, encrypt, wrapKey, get
+        return AzureLiveAuditor(p)
+
+    # --- _extract_key_permissions ---
+
+    def test_extract_matching_object_id(self):
+        auditor = self._auditor()
+        entry = type('E', (), {
+            'object_id': 'aaaa-bbbb',
+            'permissions': type('P', (), {'keys': ['sign', 'verify', 'get']})(),
+        })()
+        result = auditor._extract_key_permissions([entry], 'aaaa-bbbb')
+        assert 'sign' in result
+        assert 'verify' in result
+        assert 'get' in result
+
+    def test_extract_case_insensitive_object_id(self):
+        auditor = self._auditor()
+        entry = type('E', (), {
+            'object_id': 'AAAA-BBBB',
+            'permissions': type('P', (), {'keys': ['sign']})(),
+        })()
+        result = auditor._extract_key_permissions([entry], 'aaaa-bbbb')
+        assert 'sign' in result
+
+    def test_extract_no_matching_object_id(self):
+        auditor = self._auditor()
+        entry = type('E', (), {
+            'object_id': 'other-id',
+            'permissions': type('P', (), {'keys': ['sign']})(),
+        })()
+        result = auditor._extract_key_permissions([entry], 'aaaa-bbbb')
+        assert result == []
+
+    def test_extract_empty_access_policies(self):
+        auditor = self._auditor()
+        result = auditor._extract_key_permissions([], 'aaaa-bbbb')
+        assert result == []
+
+    def test_extract_normalises_to_lowercase(self):
+        auditor = self._auditor()
+        entry = type('E', (), {
+            'object_id': 'obj-1',
+            'permissions': type('P', (), {'keys': ['Sign', 'WrapKey', 'GET']})(),
+        })()
+        result = auditor._extract_key_permissions([entry], 'obj-1')
+        assert 'sign' in result
+        assert 'wrapkey' in result
+        assert 'get' in result
+
+    # --- audit() logic using mocked _fetch_access_policies ---
+
+    def _mock_fetch(self, auditor, key_perms, object_id='obj-1'):
+        """Patch _fetch_access_policies to return a synthetic policy."""
+        import unittest.mock as mock
+
+        entry = type('E', (), {
+            'object_id': object_id,
+            'permissions': type('P', (), {'keys': key_perms})(),
+        })()
+        auditor._fetch_access_policies = mock.Mock(return_value=[entry])
+
+    def test_audit_pass_exact_match(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # signer expects: sign, verify, get (normalised)
+        self._mock_fetch(auditor, ['sign', 'verify', 'get'])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert result.passed is True
+        assert any(f.severity == FindingSeverity.OK for f in result.findings)
+
+    def test_audit_fail_missing_permission(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # signer needs sign, verify, get — give only verify, get
+        self._mock_fetch(auditor, ['verify', 'get'])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.FAIL for f in result.findings)
+        assert 'sign' in result.missing_actions
+
+    def test_audit_warn_extra_permission_default(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # give signer extra 'decrypt' permission
+        self._mock_fetch(auditor, ['sign', 'verify', 'get', 'decrypt'])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert result.passed is True  # WARN doesn't fail
+        assert any(f.severity == FindingSeverity.WARN for f in result.findings)
+        assert 'decrypt' in result.extra_actions
+
+    def test_audit_fail_extra_permission_strict(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        self._mock_fetch(auditor, ['sign', 'verify', 'get', 'decrypt'])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+            strict=True,
+        )
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.FAIL for f in result.findings)
+
+    def test_audit_fail_no_policy_entry(self):
+        import unittest.mock as mock
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # No entry for this object_id
+        auditor._fetch_access_policies = mock.Mock(return_value=[])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.FAIL for f in result.findings)
+
+    def test_audit_error_on_fetch_failure(self):
+        import unittest.mock as mock
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        auditor._fetch_access_policies = mock.Mock(
+            side_effect=RuntimeError('403 Forbidden')
+        )
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.ERROR for f in result.findings)
+
+    def test_audit_result_key_arn_is_vault_uri(self):
+        import unittest.mock as mock
+
+        auditor = self._auditor()
+        self._mock_fetch(auditor, ['sign', 'verify', 'get'])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert result.key_arn == 'https://myvault.vault.azure.net'
+
+    def test_audit_summary_contains_role_and_vault(self):
+        auditor = self._auditor()
+        self._mock_fetch(auditor, ['sign', 'verify', 'get'])
+        result = auditor.audit(
+            role='signer',
+            vault_uri='https://myvault.vault.azure.net',
+            object_id='obj-1',
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        summary = result.summary()
+        assert 'signer' in summary
+        assert 'myvault' in summary
+
+    def test_audit_all_skips_roles_without_object_ids(self):
+        import unittest.mock as mock
+
+        auditor = self._auditor()
+        self._mock_fetch(auditor, ['sign', 'verify', 'get'], object_id='obj-signer')
+        results = auditor.audit_all(
+            vault_uri='https://myvault.vault.azure.net',
+            object_ids={'signer': 'obj-signer'},   # 'vault' role intentionally omitted
+            subscription_id='sub-1',
+            resource_group='rg-1',
+            vault_name='myvault',
+        )
+        assert 'signer' in results
+        assert 'vault' not in results
+
+    def test_import_error_without_azure_mgmt(self):
+        import unittest.mock as mock
+
+        auditor = self._auditor()
+        with mock.patch.dict('sys.modules', {'azure.mgmt.keyvault': None}):
+            with pytest.raises((ImportError, TypeError)):
+                auditor._kv_management_client('sub-1')
+
+
+# ===========================================================================
+# GCPLiveAuditor — unit tests (no real GCP calls)
+# ===========================================================================
+
+
+class TestGCPLiveAuditorUnit:
+    """Test GCPLiveAuditor internal methods and audit logic without cloud calls."""
+
+    def _auditor(self):
+        from hsed.integrations.live_audit import GCPLiveAuditor
+
+        p = Policy('test')
+        p.add_builtin('signer')    # permissions=12 → sign, verify perms
+        p.add_builtin('vault')     # permissions=3  → encrypt, decrypt perms
+        p.add_builtin('encryptor') # permissions=10 → encrypt only
+        return GCPLiveAuditor(p)
+
+    # --- _member_roles ---
+
+    def test_member_roles_found(self):
+        auditor = self._auditor()
+        bindings = [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': ['serviceAccount:ci@p.iam.gserviceaccount.com']},
+            {'role': 'roles/viewer', 'members': ['user:other@example.com']},
+        ]
+        roles = auditor._member_roles(bindings, 'serviceAccount:ci@p.iam.gserviceaccount.com')
+        assert 'roles/cloudkms.signerVerifier' in roles
+        assert 'roles/viewer' not in roles
+
+    def test_member_roles_case_insensitive(self):
+        auditor = self._auditor()
+        bindings = [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': ['ServiceAccount:CI@P.IAM.GSERVICEACCOUNT.COM']},
+        ]
+        roles = auditor._member_roles(bindings, 'serviceAccount:ci@p.iam.gserviceaccount.com')
+        assert 'roles/cloudkms.signerVerifier' in roles
+
+    def test_member_roles_empty_bindings(self):
+        auditor = self._auditor()
+        roles = auditor._member_roles([], 'serviceAccount:ci@p.iam.gserviceaccount.com')
+        assert roles == []
+
+    def test_member_roles_not_present(self):
+        auditor = self._auditor()
+        bindings = [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': ['serviceAccount:other@p.iam.gserviceaccount.com']},
+        ]
+        roles = auditor._member_roles(bindings, 'serviceAccount:ci@p.iam.gserviceaccount.com')
+        assert roles == []
+
+    # --- _gcp_expand_roles (module-level helper) ---
+
+    def test_expand_signer_verifier_role(self):
+        from hsed.integrations.live_audit import _gcp_expand_roles
+
+        perms = _gcp_expand_roles(['roles/cloudkms.signerVerifier'])
+        assert 'cloudkms.cryptoKeyVersions.useToSign' in perms
+        assert 'cloudkms.cryptoKeyVersions.useToVerify' in perms
+        assert 'cloudkms.cryptoKeys.get' in perms
+        # Must NOT include decrypt
+        assert 'cloudkms.cryptoKeyVersions.useToDecrypt' not in perms
+
+    def test_expand_encrypter_decrypter_role(self):
+        from hsed.integrations.live_audit import _gcp_expand_roles
+
+        perms = _gcp_expand_roles(['roles/cloudkms.cryptoKeyEncrypterDecrypter'])
+        assert 'cloudkms.cryptoKeyVersions.useToEncrypt' in perms
+        assert 'cloudkms.cryptoKeyVersions.useToDecrypt' in perms
+
+    def test_expand_unknown_role_returns_empty(self):
+        from hsed.integrations.live_audit import _gcp_expand_roles
+
+        perms = _gcp_expand_roles(['roles/some.unknown'])
+        assert perms == []
+
+    def test_expand_multiple_roles_union(self):
+        from hsed.integrations.live_audit import _gcp_expand_roles
+
+        perms = _gcp_expand_roles([
+            'roles/cloudkms.cryptoKeyEncrypter',
+            'roles/cloudkms.cryptoKeyDecrypter',
+        ])
+        assert 'cloudkms.cryptoKeyVersions.useToEncrypt' in perms
+        assert 'cloudkms.cryptoKeyVersions.useToDecrypt' in perms
+
+    # --- audit() logic using mocked _fetch_iam_policy ---
+
+    RESOURCE = 'projects/p/locations/global/keyRings/kr/cryptoKeys/k'
+    MEMBER = 'serviceAccount:ci@p.iam.gserviceaccount.com'
+
+    def _mock_fetch(self, auditor, bindings):
+        import unittest.mock as mock
+        auditor._fetch_iam_policy = mock.Mock(return_value=bindings)
+
+    def test_audit_pass_signer_exact_role(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        assert result.passed is True
+        assert any(f.severity == FindingSeverity.OK for f in result.findings)
+
+    def test_audit_fail_missing_permission(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # Give only viewer (no sign/verify ops)
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.viewer', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.FAIL for f in result.findings)
+
+    def test_audit_warn_extra_permissions_default(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # signer (HS-- = 12) expects: useToSign, useToVerify, get
+        # give roles/owner which additionally includes useToEncrypt + useToDecrypt → over-grant
+        self._mock_fetch(auditor, [
+            {'role': 'roles/owner', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        assert result.passed is True  # extra perms → WARN, not FAIL
+        assert any(f.severity == FindingSeverity.WARN for f in result.findings)
+        # owner adds encrypt + decrypt which signer doesn't need
+        assert len(result.extra_actions) > 0
+
+    def test_audit_fail_extra_permissions_strict(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        # Same over-grant scenario as above but strict=True → FAIL
+        self._mock_fetch(auditor, [
+            {'role': 'roles/owner', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(
+            role='signer', resource=self.RESOURCE, member=self.MEMBER, strict=True
+        )
+        assert result.passed is False
+
+    def test_audit_fail_no_bindings_for_member(self):
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': ['serviceAccount:other@p.iam.gserviceaccount.com']},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.FAIL for f in result.findings)
+
+    def test_audit_error_on_fetch_failure(self):
+        import unittest.mock as mock
+        from hsed.integrations.live_audit import FindingSeverity
+
+        auditor = self._auditor()
+        auditor._fetch_iam_policy = mock.Mock(side_effect=RuntimeError('403 Forbidden'))
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        assert result.passed is False
+        assert any(f.severity == FindingSeverity.ERROR for f in result.findings)
+
+    def test_audit_result_key_arn_is_resource_path(self):
+        auditor = self._auditor()
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        assert result.key_arn == self.RESOURCE
+
+    def test_audit_summary_contains_role_and_resource(self):
+        auditor = self._auditor()
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        summary = result.summary()
+        assert 'signer' in summary
+        assert 'cryptoKeys' in summary
+
+    def test_audit_all_skips_roles_without_members(self):
+        auditor = self._auditor()
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': [self.MEMBER]},
+        ])
+        results = auditor.audit_all(
+            resource=self.RESOURCE,
+            members={'signer': self.MEMBER},  # vault, encryptor intentionally omitted
+        )
+        assert 'signer' in results
+        assert 'vault' not in results
+        assert 'encryptor' not in results
+
+    def test_to_dict_includes_expected_and_actual(self):
+        auditor = self._auditor()
+        self._mock_fetch(auditor, [
+            {'role': 'roles/cloudkms.signerVerifier', 'members': [self.MEMBER]},
+        ])
+        result = auditor.audit(role='signer', resource=self.RESOURCE, member=self.MEMBER)
+        d = result.to_dict()
+        assert 'expected_allow' in d
+        assert 'actual_allow' in d
+        assert isinstance(d['passed'], bool)
+
+    def test_import_error_without_gcp_kms(self):
+        import unittest.mock as mock
+
+        auditor = self._auditor()
+        with mock.patch.dict('sys.modules', {'google.cloud': None, 'google.cloud.kms': None}):
+            auditor._client = None
+            with pytest.raises((ImportError, TypeError)):
+                auditor._kms_client()
