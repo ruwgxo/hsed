@@ -46,7 +46,7 @@ def _enforce_op(self, *, role: str, requires: Bit, eager: bool = True):
 
 Policy.enforce_op = _enforce_op  # type: ignore[attr-defined]
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 __all__ = [
     # Bits / permissions
     "Bit",
