@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hsed"
-version = "0.3.0"
+version = "0.3.1"
 description = "Hash|Sign|Encrypt|Decrypt — a Unix chmod-inspired permission model for cryptographic operations"
 readme = "README.md"
 requires-python = ">=3.10"
