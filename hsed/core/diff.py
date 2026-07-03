@@ -31,7 +31,6 @@ if TYPE_CHECKING:
 from .permissions import permission_string
 from .policy import Policy
 
-
 # ---------------------------------------------------------------------------
 # Result model
 # ---------------------------------------------------------------------------

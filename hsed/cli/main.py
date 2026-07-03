@@ -3,7 +3,10 @@ hsed.cli.main — full CLI with all integrations and live-audit
 """
 
 from __future__ import annotations
-import argparse, json, sys
+
+import argparse
+import json
+import sys
 from pathlib import Path
 from typing import NoReturn
 
@@ -41,7 +44,7 @@ def cmd_role_list(_args):
 
 
 def cmd_role_show(args):
-    from hsed.core.permissions import builtin_role, HSEDValidationError
+    from hsed.core.permissions import HSEDValidationError, builtin_role
 
     try:
         role = builtin_role(args.name)
@@ -54,7 +57,7 @@ def cmd_role_show(args):
 
 
 def cmd_role_create(args):
-    from hsed.core.permissions import Role, HSEDValidationError, parse_permission_string
+    from hsed.core.permissions import HSEDValidationError, Role, parse_permission_string
 
     try:
         perm_raw = args.permissions
@@ -65,7 +68,7 @@ def cmd_role_create(args):
     _ok(f"Created role '{role.name}': hsed:{role.label}/{role.permissions}")
     _ok(f"  Active bits: {', '.join(b.name for b in role.bits) or 'none'}")
     if args.policy:
-        from hsed.core.policy import Policy, RoleConflictError
+        from hsed.core.policy import RoleConflictError
 
         p = _load_policy(args.policy)
         try:
@@ -80,8 +83,8 @@ def cmd_role_create(args):
 
 
 def cmd_policy_init(args):
-    from hsed.core.policy import Policy
     from hsed.core.permissions import Role
+    from hsed.core.policy import Policy
 
     name = args.name or "default"
     p = Policy(name=name, description=args.description or "")
@@ -260,7 +263,8 @@ def cmd_diff(args):
 
 
 def cmd_policy_merge(args):
-    from hsed.core.merge import merge as _merge, MergeStrategy, MergeConflict
+    from hsed.core.merge import MergeConflict, MergeStrategy
+    from hsed.core.merge import merge as _merge
 
     policies = [_load_policy(f) for f in args.files]
     try:
@@ -275,7 +279,7 @@ def cmd_policy_merge(args):
 
     if args.output:
         out = merged.save(args.output)
-        _ok(f'Merged policy written to {out}')
+        _ok(f"Merged policy written to {out}")
     else:
         _ok(merged.to_json())
 
@@ -295,6 +299,8 @@ def cmd_policy_lint(args):
 
 
 def cmd_live_audit_aws(args):
+
+    from hsed.integrations.live_audit import AWSLiveAuditor
 
     p = _load_policy(args.policy)
     auditor = AWSLiveAuditor(p, aws_profile=args.profile, aws_region=args.region)
@@ -411,35 +417,43 @@ def build_parser() -> argparse.ArgumentParser:
     vp = ps.add_parser("validate")
     vp.add_argument("file")
 
-    mrgp = ps.add_parser("merge",
-        help="Combine multiple .hsed files into one")
-    mrgp.add_argument("files", nargs="+", metavar="FILE",
-        help="Two or more .hsed policy files to merge")
-    mrgp.add_argument("--strategy", default="strict",
+    mrgp = ps.add_parser("merge", help="Combine multiple .hsed files into one")
+    mrgp.add_argument(
+        "files", nargs="+", metavar="FILE", help="Two or more .hsed policy files to merge"
+    )
+    mrgp.add_argument(
+        "--strategy",
+        default="strict",
         choices=["strict", "least-privilege", "most-permissive"],
-        help="How to resolve conflicting role definitions (default: strict)")
-    mrgp.add_argument("--name", default=None,
-        help="Name for the output policy (default: name of first source file)")
-    mrgp.add_argument("--description", default="",
-        help="Description for the output policy")
-    mrgp.add_argument("--output", "-o",
-        help="Write merged policy to this .hsed file (default: print to stdout)")
+        help="How to resolve conflicting role definitions (default: strict)",
+    )
+    mrgp.add_argument(
+        "--name",
+        default=None,
+        help="Name for the output policy (default: name of first source file)",
+    )
+    mrgp.add_argument("--description", default="", help="Description for the output policy")
+    mrgp.add_argument(
+        "--output", "-o", help="Write merged policy to this .hsed file (default: print to stdout)"
+    )
 
-    lintp = ps.add_parser("lint",
-        help="Run static checks against a .hsed policy file")
+    lintp = ps.add_parser("lint", help="Run static checks against a .hsed policy file")
     lintp.add_argument("file", help=".hsed policy file to lint")
-    lintp.add_argument("--json", action="store_true", dest="json_out",
-        help="Output findings as JSON")
+    lintp.add_argument(
+        "--json", action="store_true", dest="json_out", help="Output findings as JSON"
+    )
 
     # diff
-    diffp = sub.add_parser("diff",
-        help="Compare two .hsed policy files")
+    diffp = sub.add_parser("diff", help="Compare two .hsed policy files")
     diffp.add_argument("file_a", metavar="FILE_A")
     diffp.add_argument("file_b", metavar="FILE_B")
-    diffp.add_argument("--json", action="store_true", dest="json_out",
-        help="Output diff as JSON")
-    diffp.add_argument("--fail-on-escalation", action="store_true", dest="fail_on_escalation",
-        help="Exit 1 if any role gained permission bits")
+    diffp.add_argument("--json", action="store_true", dest="json_out", help="Output diff as JSON")
+    diffp.add_argument(
+        "--fail-on-escalation",
+        action="store_true",
+        dest="fail_on_escalation",
+        help="Exit 1 if any role gained permission bits",
+    )
 
     # generate
     gp = sub.add_parser("generate")
@@ -502,10 +516,18 @@ def build_parser() -> argparse.ArgumentParser:
     laz = las.add_parser("azure-kv")
     laz.add_argument("--policy", required=True)
     laz.add_argument("--role")
-    laz.add_argument("--vault-uri", required=True, dest="vault_uri",
-                     help="Azure Key Vault URI, e.g. https://my-vault.vault.azure.net")
-    laz.add_argument("--object-id", required=True, dest="object_id",
-                     help="Azure AD object ID of the principal to audit")
+    laz.add_argument(
+        "--vault-uri",
+        required=True,
+        dest="vault_uri",
+        help="Azure Key Vault URI, e.g. https://my-vault.vault.azure.net",
+    )
+    laz.add_argument(
+        "--object-id",
+        required=True,
+        dest="object_id",
+        help="Azure AD object ID of the principal to audit",
+    )
     laz.add_argument("--subscription-id", required=True, dest="subscription_id")
     laz.add_argument("--resource-group", required=True, dest="resource_group")
     laz.add_argument("--vault-name", required=True, dest="vault_name")
@@ -515,10 +537,16 @@ def build_parser() -> argparse.ArgumentParser:
     lgp = las.add_parser("gcp-kms")
     lgp.add_argument("--policy", required=True)
     lgp.add_argument("--role")
-    lgp.add_argument("--resource", required=True,
-                     help="Full CryptoKey resource path: projects/p/locations/l/keyRings/kr/cryptoKeys/k")
-    lgp.add_argument("--member", required=True,
-                     help="GCP IAM member string, e.g. serviceAccount:sa@project.iam.gserviceaccount.com")
+    lgp.add_argument(
+        "--resource",
+        required=True,
+        help="Full CryptoKey resource path: projects/p/locations/l/keyRings/kr/cryptoKeys/k",
+    )
+    lgp.add_argument(
+        "--member",
+        required=True,
+        help="GCP IAM member string, e.g. serviceAccount:sa@project.iam.gserviceaccount.com",
+    )
     lgp.add_argument("--strict", action="store_true")
     lgp.add_argument("--json", action="store_true", dest="json_out")
 
