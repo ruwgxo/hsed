@@ -29,9 +29,10 @@ or eager=False (fail at first call).
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
-from .permissions import Bit, HSEDPermissionError, HSEDValidationError, Role
+from .permissions import Bit, HSEDValidationError, Role
 
 F = TypeVar("F", bound=Callable[..., Any])
 

@@ -48,12 +48,11 @@ Usage:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..core.permissions import Bit, Role, active_bits, permission_string
 from ..core.policy import Policy
-
 
 # ---------------------------------------------------------------------------
 # Permission mapping

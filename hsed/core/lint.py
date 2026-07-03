@@ -40,7 +40,6 @@ from enum import Enum
 from .permissions import Bit, has_permission, permission_string
 from .policy import Policy
 
-
 # ---------------------------------------------------------------------------
 # Severity and finding model
 # ---------------------------------------------------------------------------

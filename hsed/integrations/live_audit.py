@@ -63,12 +63,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from ..core.permissions import Bit, permission_string
+from ..core.permissions import permission_string
 from ..core.policy import Policy
 from ..integrations.aws_kms import _actions_for_permissions
 from ..integrations.azure_keyvault import _key_permissions_for as _azure_key_permissions_for
 from ..integrations.gcp_kms import _gcp_permissions_for
-
 
 # ---------------------------------------------------------------------------
 # Audit result model
@@ -484,13 +483,13 @@ class AzureLiveAuditor:
         self,
         policy: Policy,
         *,
-        credential: 'Any | None' = None,
+        credential: Any | None = None,
     ) -> None:
         self.policy = policy
         self._credential = credential
-        self._client: 'Any | None' = None
+        self._client: Any | None = None
 
-    def _get_credential(self) -> 'Any':
+    def _get_credential(self) -> Any:
         if self._credential is not None:
             return self._credential
         try:
@@ -502,7 +501,7 @@ class AzureLiveAuditor:
             ) from None
         return DefaultAzureCredential()
 
-    def _kv_management_client(self, subscription_id: str) -> 'Any':
+    def _kv_management_client(self, subscription_id: str) -> Any:
         try:
             from azure.mgmt.keyvault import KeyVaultManagementClient
         except ImportError:
@@ -520,7 +519,7 @@ class AzureLiveAuditor:
         subscription_id: str,
         resource_group: str,
         vault_name: str,
-    ) -> list['Any']:
+    ) -> list[Any]:
         """Return the raw list of AccessPolicyEntry objects for the vault."""
         client = self._kv_management_client(subscription_id)
         try:
@@ -533,7 +532,7 @@ class AzureLiveAuditor:
 
     def _extract_key_permissions(
         self,
-        access_policies: list['Any'],
+        access_policies: list[Any],
         object_id: str,
     ) -> list[str]:
         """
@@ -558,7 +557,7 @@ class AzureLiveAuditor:
         resource_group: str,
         vault_name: str,
         strict: bool = False,
-    ) -> 'AuditResult':
+    ) -> AuditResult:
         """
         Fetch the Azure Key Vault access policy and compare against the
         HSED role definition.
@@ -678,7 +677,7 @@ class AzureLiveAuditor:
         resource_group: str,
         vault_name: str,
         strict: bool = False,
-    ) -> dict[str, 'AuditResult']:
+    ) -> dict[str, AuditResult]:
         """
         Audit all roles in the policy against the same vault.
 
@@ -746,13 +745,13 @@ class GCPLiveAuditor:
         self,
         policy: Policy,
         *,
-        credentials: 'Any | None' = None,
+        credentials: Any | None = None,
     ) -> None:
         self.policy = policy
         self._credentials = credentials
-        self._client: 'Any | None' = None
+        self._client: Any | None = None
 
-    def _kms_client(self) -> 'Any':
+    def _kms_client(self) -> Any:
         if self._client is None:
             try:
                 from google.cloud import kms
@@ -761,13 +760,13 @@ class GCPLiveAuditor:
                     'google-cloud-kms is required for GCP live audits. '
                     'Install with: pip install hsed[gcp]'
                 ) from None
-            kwargs: dict[str, 'Any'] = {}
+            kwargs: dict[str, Any] = {}
             if self._credentials is not None:
                 kwargs['credentials'] = self._credentials
             self._client = kms.KeyManagementServiceClient(**kwargs)
         return self._client
 
-    def _fetch_iam_policy(self, resource: str) -> list[dict[str, 'Any']]:
+    def _fetch_iam_policy(self, resource: str) -> list[dict[str, Any]]:
         """
         Fetch the IAM policy for a CryptoKey resource.
 
@@ -792,7 +791,7 @@ class GCPLiveAuditor:
             })
         return bindings
 
-    def _member_roles(self, bindings: list[dict[str, 'Any']], member: str) -> list[str]:
+    def _member_roles(self, bindings: list[dict[str, Any]], member: str) -> list[str]:
         """Return the list of GCP roles assigned to the given member."""
         member_lower = member.lower()
         roles: list[str] = []
@@ -809,7 +808,7 @@ class GCPLiveAuditor:
         resource: str,
         member: str,
         strict: bool = False,
-    ) -> 'AuditResult':
+    ) -> AuditResult:
         """
         Fetch the GCP Cloud KMS IAM policy and compare against the HSED role.
 
@@ -921,7 +920,7 @@ class GCPLiveAuditor:
         resource: str,
         members: dict[str, str],
         strict: bool = False,
-    ) -> dict[str, 'AuditResult']:
+    ) -> dict[str, AuditResult]:
         """
         Audit all roles in the policy against the same CryptoKey resource.
 

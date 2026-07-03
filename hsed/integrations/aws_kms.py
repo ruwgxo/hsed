@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.permissions import Bit, Role, active_bits, permission_string
-from ..core.policy import Policy, RoleNotFoundError
+from ..core.policy import Policy
 
 # ---------------------------------------------------------------------------
 # KMS action mapping

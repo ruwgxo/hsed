@@ -26,12 +26,10 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from ..core.permissions import Bit, Role, active_bits, permission_string
 from ..core.policy import Policy
-
 
 # ---------------------------------------------------------------------------
 # Vault path mapping

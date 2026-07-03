@@ -18,26 +18,26 @@ A Unix chmod-inspired permission model for cryptographic operations.
         ...  # raises HSEDPermissionError
 """
 
-from .core.permissions import (
-    Bit,
-    Role,
-    HSEDPermissionError,
-    HSEDValidationError,
-    builtin_role,
-    permission_string,
-    parse_permission_string,
-    validate_permission,
-    has_permission,
-    active_bits,
-    combine,
-    intersect,
-    subtract,
-)
-from .core.policy import Policy, RoleConflictError, RoleNotFoundError
-from .core.enforcement import enforce, PermissionScope
+from .core.enforcement import PermissionScope, enforce
 
 # Monkey-patch Policy with enforce_op from PolicyEnforcer
 from .core.enforcement import PolicyEnforcer as _PE
+from .core.permissions import (
+    Bit,
+    HSEDPermissionError,
+    HSEDValidationError,
+    Role,
+    active_bits,
+    builtin_role,
+    combine,
+    has_permission,
+    intersect,
+    parse_permission_string,
+    permission_string,
+    subtract,
+    validate_permission,
+)
+from .core.policy import Policy, RoleConflictError, RoleNotFoundError
 
 
 def _enforce_op(self, *, role: str, requires: Bit, eager: bool = True):

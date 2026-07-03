@@ -17,10 +17,9 @@ Like chmod: the number IS the authority.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import IntFlag, auto
+from dataclasses import dataclass
+from enum import IntFlag
 from typing import ClassVar
-
 
 # ---------------------------------------------------------------------------
 # Permission bits
@@ -207,7 +206,7 @@ class Role:
     description: str = ""
 
     # Built-in named roles - populated below
-    BUILTIN: ClassVar[dict[str, "Role"]] = {}
+    BUILTIN: ClassVar[dict[str, Role]] = {}
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
@@ -245,7 +244,7 @@ class Role:
     # Combination helpers
     # ------------------------------------------------------------------
 
-    def grant(self, other: "Role | int") -> "Role":
+    def grant(self, other: Role | int) -> Role:
         """Return a new Role with permissions from both (union)."""
         other_p = other.permissions if isinstance(other, Role) else other
         return Role(
@@ -254,7 +253,7 @@ class Role:
             description=self.description,
         )
 
-    def revoke(self, other: "Role | int") -> "Role":
+    def revoke(self, other: Role | int) -> Role:
         """Return a new Role with permissions in *other* removed."""
         other_p = other.permissions if isinstance(other, Role) else other
         return Role(
@@ -276,7 +275,7 @@ class Role:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Role":
+    def from_dict(cls, d: dict) -> Role:
         return cls(
             name=d["name"],
             permissions=d["permissions"],
