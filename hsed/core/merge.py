@@ -36,13 +36,12 @@ Usage:
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Sequence
 
 from .permissions import Role, permission_string
 from .policy import Policy
-
 
 # ---------------------------------------------------------------------------
 # Strategy

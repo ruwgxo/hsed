@@ -11,18 +11,16 @@ and the thing persisted as a .hsed file.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from .permissions import (
     Bit,
-    HSEDPermissionError,
     HSEDValidationError,
     Role,
     builtin_role,
     permission_string,
 )
-
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -205,7 +203,7 @@ class Policy:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Policy":
+    def from_dict(cls, d: dict) -> Policy:
         p = cls(name=d.get("policy", "default"), description=d.get("description", ""))
         for rd in d.get("roles", []):
             p.add_role(Role.from_dict(rd))
@@ -216,7 +214,7 @@ class Policy:
         return json.dumps(self.to_dict(), indent=indent)
 
     @classmethod
-    def from_json(cls, text: str) -> "Policy":
+    def from_json(cls, text: str) -> Policy:
         """Deserialise from JSON string."""
         try:
             d = json.loads(text)
@@ -233,7 +231,7 @@ class Policy:
         return path
 
     @classmethod
-    def load(cls, path: str | Path) -> "Policy":
+    def load(cls, path: str | Path) -> Policy:
         """Load a policy from a .hsed JSON file."""
         path = Path(path)
         if not path.exists():
