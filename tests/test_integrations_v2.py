@@ -406,14 +406,14 @@ class TestCLINewCommands:
 
         if policy_file:
             result = subprocess.run(
-                ["python", "-m", "hsed.cli.main"] + list(args),
+                [sys.executable, "-m", "hsed.cli.main"] + list(args),
                 capture_output=True,
                 text=True,
                 cwd=str(Path(__file__).parent.parent),
             )
         else:
             result = subprocess.run(
-                ["python", "-m", "hsed.cli.main"] + list(args),
+                [sys.executable, "-m", "hsed.cli.main"] + list(args),
                 capture_output=True,
                 text=True,
                 cwd=str(Path(__file__).parent.parent),
@@ -430,7 +430,7 @@ class TestCLINewCommands:
         p.save(str(pf))
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "-m",
                 "hsed.cli.main",
                 "generate",
@@ -461,7 +461,7 @@ class TestCLINewCommands:
         p.save(str(pf))
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "-m",
                 "hsed.cli.main",
                 "generate",
@@ -492,7 +492,7 @@ class TestCLINewCommands:
         p.save(str(pf))
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "-m",
                 "hsed.cli.main",
                 "generate",
@@ -523,7 +523,7 @@ class TestCLINewCommands:
         p.save(str(pf))
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "-m",
                 "hsed.cli.main",
                 "generate",

@@ -957,7 +957,7 @@ class TestCLIDiffMergeLint:
     def _run(self, *args):
         import subprocess
         return subprocess.run(
-            ['python', '-m', 'hsed.cli.main'] + list(args),
+            [sys.executable, '-m', 'hsed.cli.main'] + list(args),
             capture_output=True, text=True,
             cwd=str(Path(__file__).parent.parent),
         )
