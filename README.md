@@ -11,8 +11,6 @@ hsed  3 → --ED → vault (secrets manager)
 hsed  9 → H--D → audit (forensics)
 ```
 
-> since 2012
-
 ---
 
 ## The Model
