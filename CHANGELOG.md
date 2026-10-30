@@ -6,6 +6,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Built-in `audit` role (9, `H--D`) description now says it can decrypt.
+  It previously read "read-only", but the D bit grants decryption, so an
+  `audit` principal can read plaintext. Permissions are unchanged.
+
+### Removed
+
+- Generated example outputs (`ci-prod.hsed`, `test.hsed`,
+  `signer-kms-policy.json`) from the repository root. They were never
+  packaged; the README walkthrough produces them.
+
+---
+
+## [0.3.1] — 2026-07-03
+
+### Fixed
+
+- `hsed live-audit aws-kms` failed with `NameError` because the CLI did
+  not import `AWSLiveAuditor`
+- Lint gate: import sorting, unused imports and annotation style (ruff)
+
+---
+
+## [0.3.0] — 2026-06-23
+
+### Added
+
+- `hsed policy merge` — combine multiple `.hsed` files into one
+- `hsed policy lint` — static checks against a `.hsed` policy file
+- `hsed diff` — compare two policy files, flagging permission escalations
+- `hsed live-audit azure-kv` and `hsed live-audit gcp-kms`
+  (`AzureLiveAuditor`, `GCPLiveAuditor`), alongside the existing AWS auditor
+- OpenSSF Scorecard workflow
+- `SECURITY.md`
+
+### Changed
+
+- CI now runs ruff lint, mypy (advisory) and pytest on Python 3.10–3.12,
+  plus a build check, with read-only workflow permissions; previously it
+  ran pytest on Python 3.12 only
+
+---
+
 ## [0.2.0] — 2026-05-21
 
 ### Added
@@ -116,10 +162,3 @@ Initial public release.
 - `.hsed` policy files are plain JSON — human-readable, diff-friendly,
   version-control safe
 
----
-
-## [Unreleased]
-
-- `live_audit` support for Azure Key Vault and GCP Cloud KMS
-- `hsed policy merge` — combine multiple `.hsed` files
-- `hsed diff` — compare two policy files

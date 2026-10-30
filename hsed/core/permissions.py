@@ -301,7 +301,7 @@ _BUILTIN_DEFINITIONS: list[tuple[str, int, str]] = [
     ("admin",     14, "H+S+E, no decrypt - administrative operations"),
     ("signer",    12, "H+S - CI/CD pipelines, code signing"),
     ("vault",      3, "E+D - secrets management, sealed stores"),
-    ("audit",      9, "H+D - compliance, forensics, read-only"),
+    ("audit",      9, "H+D - compliance, forensics; can decrypt (reads plaintext)"),
     ("encryptor", 10, "H+E - data ingestion, DMZ encryptors"),
     ("verifier",   8, "H only - signature verification, integrity checks"),
     ("none",       0, "No permissions - placeholder / deny all"),
