@@ -34,7 +34,7 @@ Combine them like octal: `hsed 12` = `H(8) + S(4)` = hash and sign only.
 | `admin`     | 14    | HSE-  | H+S+E, no decrypt                |
 | `signer`    | 12    | HS--  | CI/CD pipelines, code signing    |
 | `vault`     | 3     | --ED  | Secrets management               |
-| `audit`     | 9     | H--D  | Compliance, forensics, read-only |
+| `audit`     | 9     | H--D  | Compliance, forensics; can decrypt |
 | `encryptor` | 10    | H-E-  | Data ingestion, DMZ encryptors   |
 | `verifier`  | 8     | H---  | Signature verification only      |
 | `none`      | 0     | ----  | No permissions — deny all        |

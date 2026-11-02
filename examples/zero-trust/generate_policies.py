@@ -23,7 +23,7 @@ def build_policy() -> Policy:
     p = Policy("zero-trust-prod", description="Zero-trust production environment")
     p.add_builtin("signer")     # CI/CD: can sign, cannot decrypt
     p.add_builtin("vault")      # Secrets manager: encrypt + decrypt only
-    p.add_builtin("audit")      # Compliance: hash + decrypt, read-only
+    p.add_builtin("audit")      # Compliance: hash + decrypt (reads plaintext)
     p.add_builtin("encryptor")  # Ingest pipeline: hash + encrypt, no decrypt
     return p
 
