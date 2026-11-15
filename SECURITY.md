@@ -14,7 +14,7 @@
 
 Report privately via GitHub's
 [Security Advisories](https://github.com/ruwgxo/hsed/security/advisories/new)
-feature, or email **hi@ruwgxo.com** with subject line `[hsed] Security Report`.
+feature.
 
 Include:
 - hsed version (`pip show hsed`)
